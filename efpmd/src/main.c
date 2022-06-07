@@ -28,6 +28,10 @@
 
 #include "common.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
 typedef void (*sim_fn_t)(struct state *);
 
 void sim_sp(struct state *);
@@ -73,10 +77,12 @@ static struct cfg *make_cfg(void)
 	cfg_add_enum(cfg, "coord", EFP_COORD_TYPE_POINTS,
 		"xyzabc\n"
 		"points\n"
-		"rotmat\n",
+		"rotmat\n"
+        "atoms\n",
 		(int []) { EFP_COORD_TYPE_XYZABC,
 			   EFP_COORD_TYPE_POINTS,
-			   EFP_COORD_TYPE_ROTMAT });
+			   EFP_COORD_TYPE_ROTMAT,
+			   EFP_COORD_TYPE_ATOMS});
 
 	cfg_add_string(cfg, "terms", "elec pol disp xr");
 
@@ -157,7 +163,10 @@ static struct cfg *make_cfg(void)
                  (int []) { EFP_SYMM_FRAG_FRAG,
                             EFP_SYMM_FRAG_LIST });
 
-	return cfg;
+    cfg_add_int(cfg, "update_params", 0);
+    cfg_add_double(cfg, "update_params_cutoff", 0.0);
+
+    return cfg;
 }
 
 static sim_fn_t get_sim_fn(enum run_type run_type)
@@ -275,7 +284,9 @@ static struct efp *create_efp(const struct cfg *cfg, const struct sys *sys)
         .ligand = cfg_get_int(cfg, "ligand"),
         .print_pbc = cfg_get_bool(cfg, "print_pbc"),
         .symmetry = cfg_get_bool(cfg, "symmetry"),
-        .symm_frag = cfg_get_enum(cfg, "symm_frag")
+        .symm_frag = cfg_get_enum(cfg, "symm_frag"),
+        .update_params = cfg_get_int(cfg, "update_params"),
+        .update_params_cutoff = cfg_get_double(cfg, "update_params_cutoff")
 	};
 
 	if (opts.xr_cutoff == 0.0) {
@@ -330,7 +341,16 @@ static struct efp *create_efp(const struct cfg *cfg, const struct sys *sys)
 	}
 
 	for (size_t i = 0; i < sys->n_frags; i++)
-		check_fail(efp_set_frag_coordinates(efp, i, coord_type, sys->frags[i].coord));
+        check_fail(efp_set_frag_coordinates(efp, i, coord_type, sys->frags[i].coord));
+
+	/*
+	// LVS: need to coordinate this function with update_fragment() in efp.c
+	// copying atomic coordinates of fragments
+	// possibly add check on update_params == 1
+	if (coord_type == EFP_COORD_TYPE_ATOMS)
+        for (size_t i = 0; i < sys->n_frags; i++)
+            check_fail(efp_set_frag_atoms(efp, i, sys->frags[i].n_atoms, sys->frags[i].atoms));
+	*/
 
 	return (efp);
 }
@@ -427,7 +447,8 @@ static void convert_units(struct cfg *cfg, struct sys *sys)
 	size_t n_convert = (size_t []) {
 		[EFP_COORD_TYPE_XYZABC] = 3,
 		[EFP_COORD_TYPE_POINTS] = 9,
-		[EFP_COORD_TYPE_ROTMAT] = 3 }[cfg_get_enum(cfg, "coord")];
+		[EFP_COORD_TYPE_ROTMAT] = 3,
+		[EFP_COORD_TYPE_ATOMS] = 9}[cfg_get_enum(cfg, "coord")];
 
 	for (size_t i = 0; i < sys->n_frags; i++) {
 		vec_scale(&sys->frags[i].constraint_xyz, 1.0 / BOHR_RADIUS);
@@ -442,8 +463,12 @@ static void convert_units(struct cfg *cfg, struct sys *sys)
 
 static void sys_free(struct sys *sys)
 {
-	for (size_t i = 0; i < sys->n_frags; i++)
-		free(sys->frags[i].name);
+	for (size_t i = 0; i < sys->n_frags; i++) {
+        free(sys->frags[i].name);
+        free(sys->frags[i].atoms);
+//	    for (size_t j = 0; j < sys->frags[i].n_atoms; j++)
+//	        free(sys->frags[i].atoms[j])
+	}
 
 	free(sys->frags);
 	free(sys->charges);
