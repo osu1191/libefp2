@@ -305,8 +305,12 @@ static struct efp *create_efp(const struct cfg *cfg, const struct sys *sys)
 	else
 		add_potentials(efp, cfg, sys);
 
-	for (size_t i = 0; i < sys->n_frags; i++)
-		check_fail(efp_add_fragment(efp, sys->frags[i].name));
+	for (size_t i = 0; i < sys->n_frags; i++) {
+	    if (i == opts.ligand)
+            check_fail(efp_add_ligand(efp, sys->frags[i].name));
+	    else
+            check_fail(efp_add_fragment(efp, sys->frags[i].name));
+    }
 
 	if (sys->n_charges > 0) {
 		double q[sys->n_charges];

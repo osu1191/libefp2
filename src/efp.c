@@ -35,20 +35,6 @@
 #include "stream.h"
 #include "util.h"
 
-static void
-add_screen2_params(struct frag *frag) {
-    double *scr;
-    scr = (double *)malloc(frag->n_multipole_pts * sizeof(double));
-    // if (scr == NULL)
-    //    return EFP_RESULT_NO_MEMORY;
-    for (int i=0; i<frag->n_multipole_pts; i++){
-        scr[i] = 10.0;    // assign large value - no effective screening
-    }
-
-    if (frag->screen_params)
-        free(frag->screen_params);
-    frag->screen_params = scr;
-}
 
 static void
 update_fragment(struct frag *frag)
@@ -194,8 +180,6 @@ free_frag(struct frag *frag)
 	free(frag->xr_fock_mat);
 	free(frag->xr_wf);
 	free(frag->xrfit);
-	free(frag->screen_params);
-	free(frag->ai_screen_params);
 
 	for (size_t i = 0; i < 3; i++)
 		free(frag->xr_wf_deriv[i]);
@@ -209,6 +193,19 @@ free_frag(struct frag *frag)
 	free(frag->xr_atoms);
 
 	/* don't do free(frag) here */
+}
+
+static void
+free_ligand(struct ligand *ligand)
+{
+    if (!ligand)
+        return;
+
+    free_frag(ligand->ligand_frag);
+    for (size_t i=0; i<ligand->n_ligand_pts; i++) {
+        free(ligand->ligand_pts[i].fragment_field)
+    }
+    free(ligand->ligand_pts);
 }
 
 static enum efp_result
@@ -231,20 +228,6 @@ copy_frag(struct frag *dest, const struct frag *src)
 		if (!dest->multipole_pts)
 			return EFP_RESULT_NO_MEMORY;
 		memcpy(dest->multipole_pts, src->multipole_pts, size);
-	}
-	if (src->screen_params) {
-		size = src->n_multipole_pts * sizeof(double);
-		dest->screen_params = (double *)malloc(size);
-		if (!dest->screen_params)
-			return EFP_RESULT_NO_MEMORY;
-		memcpy(dest->screen_params, src->screen_params, size);
-	}
-	if (src->ai_screen_params) {
-		size = src->n_multipole_pts * sizeof(double);
-		dest->ai_screen_params = (double *)malloc(size);
-		if (!dest->ai_screen_params)
-			return EFP_RESULT_NO_MEMORY;
-		memcpy(dest->ai_screen_params, src->ai_screen_params, size);
 	}
 	if (src->polarizable_pts) {
 		size = src->n_polarizable_pts * sizeof(struct polarizable_pt);
@@ -333,6 +316,34 @@ copy_frag(struct frag *dest, const struct frag *src)
 	return EFP_RESULT_SUCCESS;
 }
 
+static enum efp_result
+copy_ligand(struct ligand *dest, const struct ligand *src) {
+    size_t size;
+
+    memcpy(dest, src, sizeof(*dest));
+
+    if (src->ligand_frag)
+        copy_frag(dest->ligand_frag, src->ligand_frag);
+
+    if (src->ligand_pts) {
+        size = src->n_ligand_pts * sizeof(struct ligand_pt);
+        dest->ligand_pts = (struct ligand_pt *) malloc(size);
+        if (!dest->ligand_pts)
+            return EFP_RESULT_NO_MEMORY;
+        memcpy(dest->ligand_pts, src->ligand_pts, size);
+
+        for (size_t i=0; i<src->n_ligand_pts; i++) {
+            const struct ligand_pt *src_pt = src->ligand_pts + i;
+            struct ligand_pt *dest_pt = dest->ligand_pts + i;
+            size = src_pt->n_frag * sizeof(vec_t);
+            dest_pt->fragment_field = (vec_t *)malloc(size);
+            if (!dest_pt->fragment_field)
+                return EFP_RESULT_NO_MEMORY;
+            memcpy(dest_pt->fragment_field, src_pt->fragment_field, size);
+        }
+    }
+}
+
 // updates (shifts) parameters of fragment based on coordinates of fragment atoms
 static enum efp_result
 update_params(struct efp_atom *atoms, const struct frag *lib_orig, const struct frag *lib_current) {
@@ -397,12 +408,6 @@ check_frag_params(const struct efp_opts *opts, struct frag *frag)
 			efp_log("electrostatic parameters are missing");
 			return EFP_RESULT_FATAL;
 		}
-		if (opts->elec_damp == EFP_ELEC_DAMP_SCREEN &&
-		    frag->screen_params == NULL) {
-			efp_log("electrostatic screening parameters are missing; continue");
-			add_screen2_params(frag);
-            //return EFP_RESULT_FATAL;
-		}
 	}
 	if ((opts->terms & EFP_TERM_POL) || (opts->terms & EFP_TERM_AI_POL)) {
 		if (!frag->polarizable_pts || !frag->multipole_pts) {
@@ -439,12 +444,13 @@ check_params(struct efp *efp)
 {
 	enum efp_result res;
 
-	for (size_t i = 0; i < efp->n_frag; i++)
-		if ((res = check_frag_params(&efp->opts, efp->frags + i))) {
+	for (size_t i = 0; i < efp->n_frag; i++) {
+	    // print_frag_info(efp, i);
+        if ((res = check_frag_params(&efp->opts, efp->frags + i))) {
             efp_log("check_params() failure");
             return res;
-		}
-
+        }
+    }
 	return EFP_RESULT_SUCCESS;
 }
 
@@ -1101,10 +1107,9 @@ efp_get_stress_tensor(struct efp *efp, double *stress)
 }
 
 EFP_EXPORT enum efp_result
-efp_get_ai_screen(struct efp *efp, size_t frag_idx, double *screen)
+efp_get_frag_ai_screen(struct efp *efp, size_t frag_idx, double *screen, int if_screen)
 {
 	const struct frag *frag;
-	size_t size;
 
 	assert(efp);
 	assert(screen);
@@ -1112,24 +1117,65 @@ efp_get_ai_screen(struct efp *efp, size_t frag_idx, double *screen)
 
 	frag = &efp->frags[frag_idx];
 
-	if (frag->ai_screen_params == NULL) {
-		efp_log("no screening parameters found for %s", frag->name);
-		return EFP_RESULT_FATAL;
-	}
+	if_screen = 0;
+	for (int i=0; i<frag->n_multipole_pts; i++) {
+        struct multipole_pt *pt = frag->multipole_pts + i;
 
-	size = frag->n_multipole_pts * sizeof(double);
-	memcpy(screen, frag->ai_screen_params, size);
+        *screen++ = pt->screen0;
+        if (pt->if_scr0)
+            if_screen = 1;
+	}
 
 	return EFP_RESULT_SUCCESS;
 }
 
+EFP_EXPORT enum efp_result
+efp_get_all_ai_screen(struct efp *efp, double *screen)
+{
+    assert(efp);
+    assert(screen);
+
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            struct multipole_pt *pt = frag->multipole_pts + j;
+            *screen++ = pt->screen0;
+        }
+    }
+
+    return EFP_RESULT_SUCCESS;
+}
+/*
+EFP_EXPORT enum efp_result
+efp_get_ai_screen(struct efp *efp, size_t frag_idx, double *screen)
+{
+    const struct frag *frag;
+    size_t size;
+
+    assert(efp);
+    assert(screen);
+    assert(frag_idx < efp->n_frag);
+
+    frag = &efp->frags[frag_idx];
+
+    if (frag->ai_screen_params == NULL) {
+        efp_log("no screening parameters found for %s", frag->name);
+        return EFP_RESULT_FATAL;
+    }
+
+    size = frag->n_multipole_pts * sizeof(double);
+    memcpy(screen, frag->ai_screen_params, size);
+
+    return EFP_RESULT_SUCCESS;
+}
+*/
 EFP_EXPORT enum efp_result
 efp_prepare(struct efp *efp)
 {
 	assert(efp);
 
 	efp->n_polarizable_pts = 0;
-
 	for (size_t i = 0; i < efp->n_frag; i++) {
 		efp->frags[i].polarizable_offset = efp->n_polarizable_pts;
 		efp->n_polarizable_pts += efp->frags[i].n_polarizable_pts;
@@ -1145,10 +1191,6 @@ efp_prepare(struct efp *efp)
 	}
 	efp->fragment_field = (vec_t *)calloc(efp->n_fragment_field_pts, sizeof(vec_t));
 
-	efp->indip = (vec_t *)calloc(efp->n_polarizable_pts, sizeof(vec_t));
-	efp->indipconj = (vec_t *)calloc(efp->n_polarizable_pts, sizeof(vec_t));
-    efp->indip_old = (vec_t *)calloc(efp->n_polarizable_pts, sizeof(vec_t));
-    efp->indipconj_old = (vec_t *)calloc(efp->n_polarizable_pts, sizeof(vec_t));
 	efp->grad = (six_t *)calloc(efp->n_frag, sizeof(six_t));
 	efp->skiplist = (char *)calloc(efp->n_frag * efp->n_frag, 1);
 	efp->pair_energies = (struct efp_energy *)calloc(efp->n_frag, sizeof(struct efp_energy));
@@ -1442,6 +1484,62 @@ efp_get_multipole_values(struct efp *efp, double *mult)
 }
 
 EFP_EXPORT enum efp_result
+efp_get_dipole_values(struct efp *efp, double *dipoles)
+{
+    assert(efp);
+    assert(dipoles);
+
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            struct multipole_pt *pt = frag->multipole_pts + j;
+
+            *dipoles++ = pt->dipole.x;
+            *dipoles++ = pt->dipole.y;
+            *dipoles++ = pt->dipole.z;
+        }
+    }
+    return EFP_RESULT_SUCCESS;
+}
+
+EFP_EXPORT enum efp_result
+efp_get_quadrupole_values(struct efp *efp, double *quad)
+{
+    assert(efp);
+    assert(quad);
+
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            struct multipole_pt *pt = frag->multipole_pts + j;
+            for (size_t t = 0; t < 6; t++)
+                *quad++ = pt->quadrupole[t];
+        }
+    }
+    return EFP_RESULT_SUCCESS;
+}
+
+EFP_EXPORT enum efp_result
+efp_get_octupole_values(struct efp *efp, double *oct)
+{
+    assert(efp);
+    assert(oct);
+
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            struct multipole_pt *pt = frag->multipole_pts + j;
+            for (size_t t = 0; t < 10; t++)
+                *oct++ = pt->octupole[t];
+        }
+    }
+    return EFP_RESULT_SUCCESS;
+}
+
+EFP_EXPORT enum efp_result
 efp_get_frag_induced_dipole_count(struct efp *efp, size_t frag_idx, size_t *n_dip)
 {
     assert(efp);
@@ -1491,22 +1589,72 @@ efp_get_induced_dipole_coordinates(struct efp *efp, double *xyz)
 EFP_EXPORT enum efp_result
 efp_get_induced_dipole_values(struct efp *efp, double *dip)
 {
-	assert(efp);
-	assert(dip);
+    assert(efp);
+    assert(dip);
 
-	memcpy(dip, efp->indip, efp->n_polarizable_pts * sizeof(vec_t));
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            *dip++ = pt->indip.x;
+            *dip++ = pt->indip.y;
+            *dip++ = pt->indip.z;
+        }
+    }
 	return EFP_RESULT_SUCCESS;
 }
 
 EFP_EXPORT enum efp_result
 efp_get_induced_dipole_conj_values(struct efp *efp, double *dip)
 {
-	assert(efp);
-	assert(dip);
+    assert(efp);
+    assert(dip);
 
-	memcpy(dip, efp->indipconj, efp->n_polarizable_pts * sizeof(vec_t));
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            *dip++ = pt->indipconj.x;
+            *dip++ = pt->indipconj.y;
+            *dip++ = pt->indipconj.z;
+        }
+    }
 	return EFP_RESULT_SUCCESS;
 }
+
+EFP_EXPORT enum efp_result
+efp_set_induced_dipole_values(struct efp *efp, double *dip, int if_conjug)
+{
+    assert(efp);
+    assert(dip);
+
+    size_t index = 0;
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            if (if_conjug) {
+                pt->indipconj.x = dip[index];
+                pt->indipconj.y = dip[index + 1];
+                pt->indipconj.z = dip[index + 2];
+            }
+            else {
+                pt->indip.x = dip[index];
+                pt->indip.y = dip[index + 1];
+                pt->indip.z = dip[index + 2];
+            }
+            index+=3;
+        }
+    }
+    return EFP_RESULT_SUCCESS;
+}
+
 
 EFP_EXPORT enum efp_result
 efp_get_old_induced_dipole_values(struct efp *efp, double *dip)
@@ -1514,8 +1662,17 @@ efp_get_old_induced_dipole_values(struct efp *efp, double *dip)
     assert(efp);
     assert(dip);
 
-    memcpy(dip, efp->indip_old, efp->n_polarizable_pts * sizeof(vec_t));
-    return EFP_RESULT_SUCCESS;
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            *dip++ = pt->indip_old.x;
+            *dip++ = pt->indip_old.y;
+            *dip++ = pt->indip_old.z;
+        }
+    }
 }
 
 EFP_EXPORT enum efp_result
@@ -1524,8 +1681,17 @@ efp_get_old_induced_dipole_conj_values(struct efp *efp, double *dip)
     assert(efp);
     assert(dip);
 
-    memcpy(dip, efp->indipconj_old, efp->n_polarizable_pts * sizeof(vec_t));
-    return EFP_RESULT_SUCCESS;
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            *dip++ = pt->indipconj_old.x;
+            *dip++ = pt->indipconj_old.y;
+            *dip++ = pt->indipconj_old.z;
+        }
+    }
 }
 
 EFP_EXPORT enum efp_result
@@ -1600,10 +1766,6 @@ efp_shutdown(struct efp *efp)
 	free(efp->ptc);
 	free(efp->ptc_xyz);
 	free(efp->ptc_grad);
-	free(efp->indip);
-	free(efp->indipconj);
-    free(efp->indip_old);
-    free(efp->indipconj_old);
 	free(efp->ai_orbital_energies);
 	free(efp->ai_dipole_integrals);
 	free(efp->skiplist);
@@ -1708,6 +1870,15 @@ efp_add_fragment(struct efp *efp, const char *name)
 			return EFP_RESULT_NO_MEMORY;
 	}
 	return EFP_RESULT_SUCCESS;
+}
+
+EFP_EXPORT enum efp_result
+efp_add_ligand(struct efp *efp, const char *name) {
+    assert(efp);
+    assert(name);
+
+    check_fail(efp_add_fragment(efp, name));
+    check_fail(make_ligand(efp));
 }
 
 EFP_EXPORT enum efp_result
@@ -1901,6 +2072,7 @@ efp_banner(void)
 	static const char banner[] =
 		"LIBEFP ver. " LIBEFP_VERSION_STRING "\n"
 		"Copyright (c) 2012-2017 Ilya Kaliman\n"
+        "              2018-2022 Lyudmila Slipchenko\n"
 		"\n"
 		"Journal References:\n"
 		"  - Kaliman and Slipchenko, JCC 2013.\n"
@@ -2090,4 +2262,63 @@ n_symm_frag(struct efp *efp, size_t *symm_frag) {
     }
 }
 
+void
+print_mult_pt(struct efp *efp, size_t frag_index, size_t pt_index) {
+    struct multipole_pt *pt = efp->frags[frag_index].multipole_pts + pt_index;
+    printf(" Multipole point %s %lf %lf %lf\n", pt->label, pt->x, pt->y, pt->z);
+    printf(" znuc, monopole %lf %lf\n", pt->znuc, pt->monopole);
+    printf(" dipole     %lf %lf %lf\n", pt->dipole.x, pt->dipole.y, pt->dipole.z);
+    printf(" duadrupole %lf %lf %lf %lf %lf %lf\n", pt->quadrupole[0], pt->quadrupole[1],
+           pt->quadrupole[2], pt->quadrupole[3], pt->quadrupole[4], pt->quadrupole[5]);
+    printf(" octupole   %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf\n",
+           pt->octupole[0], pt->octupole[1], pt->octupole[2], pt->octupole[3], pt->octupole[4],
+           pt->octupole[5], pt->octupole[6], pt->octupole[7], pt->octupole[8], pt->octupole[9]);
+    printf(" screen, screen2 %lf %lf\n", pt->screen0, pt->screen2);
+    printf("\n");
+}
 
+void
+print_atoms(struct efp *efp, size_t frag_index, size_t atom_index) {
+    struct efp_atom *atom = efp->frags[frag_index].atoms + atom_index;
+    printf(" Atom %s %lf %lf %lf\n", atom->label, atom->x, atom->y, atom->z);
+    printf(" znuc, mass %lf %lf\n", atom->znuc, atom->mass);
+    printf("\n");
+}
+
+void
+print_pol_pt(struct efp *efp, size_t frag_index, size_t pol_index) {
+    struct polarizable_pt *pt = efp->frags[frag_index].polarizable_pts + pol_index;
+    printf(" Polarizability point coords   %lf %lf %lf\n", pt->x, pt->y, pt->z);
+    printf(" polarizability tensor         %lf %lf %lf %lf %lf %lf %lf %lf %lf\n",
+            pt->tensor.xx, pt->tensor.xy, pt->tensor.xz, pt->tensor.yx, pt->tensor.yy, pt->tensor.yz,
+           pt->tensor.zx, pt->tensor.zy, pt->tensor.zz);
+    printf(" electric field                %lf %lf %lf\n", pt->elec_field.x, pt->elec_field.y, pt->elec_field.z);
+    printf(" wf electric field             %lf %lf %lf\n", pt->elec_field_wf.x, pt->elec_field_wf.y, pt->elec_field_wf.z);
+    printf(" ligand electric field         %lf %lf %lf\n", pt->ligand_field.x, pt->ligand_field.y, pt->ligand_field.z);
+    printf(" induced dipole                %lf %lf %lf\n", pt->indip.x, pt->indip.y, pt->indip.z);
+    printf(" conjugated induced dipole     %lf %lf %lf\n", pt->indipconj.x, pt->indipconj.y, pt->indipconj.z);
+    printf(" old induced dipole            %lf %lf %lf\n", pt->indip_old.x, pt->indip_old.y, pt->indip_old.z);
+    printf(" old conjugated induced dipole %lf %lf %lf\n", pt->indipconj_old.x, pt->indipconj_old.y, pt->indipconj_old.z);
+
+    printf("\n");
+}
+
+void
+print_frag_info(struct efp *efp, size_t frag_index) {
+    struct frag *fr = efp->frags + frag_index;
+    printf("Fragment %s\n", fr->name);
+
+    for (int i=0; i < fr->n_atoms; i++) {
+        print_atoms(efp, frag_index, i);
+    }
+
+    for (int i=0; i < fr->n_multipole_pts; i++) {
+        print_mult_pt(efp, frag_index, i);
+    }
+
+    for (int i=0; i < fr->n_polarizable_pts; i++) {
+        print_pol_pt(efp, frag_index, i);
+    }
+
+    printf("\n");
+}

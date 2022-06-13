@@ -31,6 +31,9 @@
 
 double efp_get_pol_damp_tt(double, double, double);
 enum efp_result efp_compute_id_direct(struct efp *);
+enum efp_result efp_get_induced_dipole_values(struct efp *efp, double *dip);
+enum efp_result efp_get_induced_dipole_conj_values(struct efp *efp, double *dip);
+enum efp_result efp_set_induced_dipole_values(struct efp *efp, double *dip, int if_conjug);
 
 static void
 copy_matrix(double *dst, size_t n, size_t off_i, size_t off_j, const mat_t *m)
@@ -129,21 +132,23 @@ compute_lhs(const struct efp *efp, double *c, int conj)
 }
 
 static void
-compute_rhs(const struct efp *efp, vec_t *id, int conj)
+compute_rhs(struct efp *efp, int conj)
 {
-	for (size_t i = 0, idx = 0; i < efp->n_frag; i++) {
-		const struct frag *frag = efp->frags + i;
+	for (size_t i = 0; i < efp->n_frag; i++) {
+		struct frag *frag = efp->frags + i;
 
-		for (size_t j = 0; j < frag->n_polarizable_pts; j++, idx++) {
-			const struct polarizable_pt *pt =
+		for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+			struct polarizable_pt *pt =
 			    frag->polarizable_pts + j;
 			vec_t field = vec_add(&pt->elec_field,
 			    &pt->elec_field_wf);
 
 			if (conj)
-				id[idx] = mat_trans_vec(&pt->tensor, &field);
+			    pt->indipconj = mat_trans_vec(&pt->tensor, &field);
+				//id[idx] = mat_trans_vec(&pt->tensor, &field);
 			else
-				id[idx] = mat_vec(&pt->tensor, &field);
+                pt->indip = mat_vec(&pt->tensor, &field);
+				//id[idx] = mat_vec(&pt->tensor, &field);
 		}
 	}
 }
@@ -167,30 +172,63 @@ efp_compute_id_direct(struct efp *efp)
 
 	/* induced dipoles */
 	compute_lhs(efp, c, 0);
-	compute_rhs(efp, efp->indip, 0);
+	compute_rhs(efp, 0);
 	transpose_matrix(c, n);
 
+	double *dip;
+    dip = (double *)calloc(n, sizeof(double));
+    if (efp_get_induced_dipole_values(efp, dip)) {
+        efp_log("efp_compute_id_direct() failure");
+    }
+
+    if (efp_dgesv((fortranint_t)n, 1, c, (fortranint_t)n, ipiv,
+                  (double *)dip, (fortranint_t)n) != 0) {
+        efp_log("dgesv: error solving for induced dipoles");
+        res = EFP_RESULT_FATAL;
+        goto error;
+    }
+    if (efp_set_induced_dipole_values(efp, dip, 0)) {
+        efp_log("efp_compute_id_direct() failure");
+    }
+
+/*
 	if (efp_dgesv((fortranint_t)n, 1, c, (fortranint_t)n, ipiv,
 	    (double *)efp->indip, (fortranint_t)n) != 0) {
 		efp_log("dgesv: error solving for induced dipoles");
 		res = EFP_RESULT_FATAL;
 		goto error;
-	}
+	}*/
 
 	/* conjugate induced dipoles */
 	compute_lhs(efp, c, 1);
-	compute_rhs(efp, efp->indipconj, 1);
+	compute_rhs(efp, 1);
 	transpose_matrix(c, n);
 
-	if (efp_dgesv((fortranint_t)n, 1, c, (fortranint_t)n, ipiv,
+    if (efp_get_induced_dipole_conj_values(efp, dip)) {
+        efp_log("efp_compute_id_direct() failure");
+    }
+
+    if (efp_dgesv((fortranint_t)n, 1, c, (fortranint_t)n, ipiv,
+                  (double *)dip, (fortranint_t)n) != 0) {
+        efp_log("dgesv: error solving for induced dipoles");
+        res = EFP_RESULT_FATAL;
+        goto error;
+    }
+    if (efp_set_induced_dipole_values(efp, dip, 1)) {
+        efp_log("efp_compute_id_direct() failure");
+    }
+
+/*
+    if (efp_dgesv((fortranint_t)n, 1, c, (fortranint_t)n, ipiv,
 	    (double *)efp->indipconj, (fortranint_t)n) != 0) {
 		efp_log("dgesv: error solving for conjugate induced dipoles");
 		res = EFP_RESULT_FATAL;
 		goto error;
-	}
+	} */
 	res = EFP_RESULT_SUCCESS;
 error:
 	free(c);
 	free(ipiv);
+	free(dip);
 	return res;
 }

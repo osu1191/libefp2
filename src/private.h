@@ -28,6 +28,7 @@
 #define LIBEFP_PRIVATE_H
 
 #include <assert.h>
+#include <stdbool.h>
 
 #include "efp.h"
 #include "int.h"
@@ -41,11 +42,22 @@
 #define ARRAY_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
 
 struct multipole_pt {
-	double x, y, z;
+    char label[32];   /**< Multipole point label. */
+    double x, y, z;
+    double znuc;
 	double monopole;
 	vec_t dipole;
 	double quadrupole[6];
 	double octupole[10];
+	double screen2;   /**<Electrostatic frag-frag screening parameter>*/
+	double screen0;    /**<Electrostatic AI-frag screening parameter>*/
+    bool if_znuc;
+    bool if_mon;
+    bool if_dip;
+    bool if_quad;
+    bool if_oct;
+    bool if_scr2;
+    bool if_scr0;
 };
 
 struct polarizable_pt {
@@ -53,7 +65,20 @@ struct polarizable_pt {
 	mat_t tensor;
 	vec_t elec_field;
 	vec_t elec_field_wf;
-	vec_t ligand_field;
+	vec_t ligand_field;   // field due to ligand
+	vec_t indip;
+	vec_t indip_old;
+	vec_t indipconj;
+	vec_t indipconj_old;
+};
+
+/* polarizable point on a ligand to store fields due to other fragments */
+struct ligand_pt {
+    /* fields of all (n_frag) fragments on this point  */
+    vec_t *fragment_field;
+
+    /* number of fragments producing fields */
+    size_t n_frag;
 };
 
 struct dynamic_polarizable_pt {
@@ -107,12 +132,6 @@ struct frag {
 	/* number of distributed multipole points */
 	size_t n_multipole_pts;
 
-	/* electrostatic screening parameters */
-	double *screen_params;
-
-	/* ab initio electrostatic screening parameters */
-	double *ai_screen_params;
-
 	/* polarization damping parameter */
 	double pol_damp;
 
@@ -122,7 +141,7 @@ struct frag {
 	/* number of distributed polarizability points */
 	size_t n_polarizable_pts;
 
-	/* dynamic polarizability points */
+    /* dynamic polarizability points */
 	struct dynamic_polarizable_pt *dynamic_polarizable_pts;
 
     /* dipole-quadrupole dynamic polarizability points */
@@ -169,6 +188,18 @@ struct frag {
 
 	/* offset of fragment field points for this fragment */
 	size_t fragment_field_offset;
+};
+
+/* structure derived from struct frag for describing ligand */
+struct ligand {
+    /* fragment */
+    struct frag ligand_frag;
+
+    /* array of ligand points */
+    struct ligand_pt *ligand_pts;
+
+    /* number of ligand points */
+    size_t n_ligand_pts;
 };
 
 struct efp {
@@ -224,16 +255,16 @@ struct efp {
 	vec_t *ptc_grad;
 
 	/* polarization induced dipoles */
-	vec_t *indip;
+	// vec_t *indip;
 
 	/* polarization conjugate induced dipoles */
-	vec_t *indipconj;
+	// vec_t *indipconj;
 
     /* polarization induced dipoles */
-    vec_t *indip_old;
+    // vec_t *indip_old;
 
     /* polarization conjugate induced dipoles */
-    vec_t *indipconj_old;
+    // vec_t *indipconj_old;
 
     /* total number of polarizable points */
 	size_t n_polarizable_pts;
