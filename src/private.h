@@ -187,13 +187,13 @@ struct frag {
 	size_t polarizable_offset;
 
 	/* offset of fragment field points for this fragment */
-	size_t fragment_field_offset;
+	// size_t fragment_field_offset;
 };
 
 /* structure derived from struct frag for describing ligand */
 struct ligand {
     /* fragment */
-    struct frag ligand_frag;
+    struct frag *ligand_frag;
 
     /* array of ligand points */
     struct ligand_pt *ligand_pts;
@@ -220,6 +220,12 @@ struct efp {
 
     /* array with the library of fragment updated (shifted) parameters */
     struct frag **lib_current;
+
+    /* pointer to ligand fragment */
+    struct ligand *ligand;
+
+    /* ligand index in fragment list */
+    size_t ligand_index;
 
     /* callback which computes electric field from electrons */
 	efp_electron_density_field_fn get_electron_density_field;
@@ -270,10 +276,10 @@ struct efp {
 	size_t n_polarizable_pts;
 
 	/* total number of points to store electric field due to ligand */
-	size_t n_fragment_field_pts;
+	// size_t n_fragment_field_pts;
 
 	/* electric field on ligand points due to fragments */
-	vec_t *fragment_field;
+	// vec_t *fragment_field;
 
 	/* number of core orbitals in ab initio subsystem */
 	size_t n_ai_core;

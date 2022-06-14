@@ -346,6 +346,14 @@ enum efp_result efp_add_potential(struct efp *efp, const char *path);
 enum efp_result efp_add_fragment(struct efp *efp, const char *name);
 
 /**
+ * Add a ligand fragment to teh system
+ * @param[in] efp
+ * @param[in] ligand_index Index of the ligand in the fragment list
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result efp_add_ligand(struct efp *efp, int ligand_index);
+
+/**
  * Prepare the calculation.
  *
  * New fragments must NOT be added after a call to this function.
@@ -1367,6 +1375,13 @@ void print_mult_pt(struct efp *efp, size_t frag_index, size_t pt_index);
  * @param pol_index index of polarizable point
  */
 void print_pol_pt(struct efp *efp, size_t frag_index, size_t pol_index);
+
+/**
+ * Prints information about ligand if any
+ * @param efp
+ * @param frag_index index of fragment
+ */
+void print_ligand(struct efp *efp, size_t frag_index);
 
 /**
  * Prints information on fragment

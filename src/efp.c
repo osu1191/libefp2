@@ -201,11 +201,13 @@ free_ligand(struct ligand *ligand)
     if (!ligand)
         return;
 
-    free_frag(ligand->ligand_frag);
+    //free_frag(&ligand->ligand_frag);
     for (size_t i=0; i<ligand->n_ligand_pts; i++) {
-        free(ligand->ligand_pts[i].fragment_field)
+        if (ligand->ligand_pts[i].fragment_field)
+            free(ligand->ligand_pts[i].fragment_field);
     }
-    free(ligand->ligand_pts);
+    if (ligand->ligand_pts)
+        free(ligand->ligand_pts);
 }
 
 static enum efp_result
@@ -316,6 +318,7 @@ copy_frag(struct frag *dest, const struct frag *src)
 	return EFP_RESULT_SUCCESS;
 }
 
+/*
 static enum efp_result
 copy_ligand(struct ligand *dest, const struct ligand *src) {
     size_t size;
@@ -343,6 +346,7 @@ copy_ligand(struct ligand *dest, const struct ligand *src) {
         }
     }
 }
+*/
 
 // updates (shifts) parameters of fragment based on coordinates of fragment atoms
 static enum efp_result
@@ -515,11 +519,11 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
 
 					/* */
 					if (efp->opts.enable_pairwise) {
-                        if (i == efp->opts.ligand) {
+                        if (i == efp->ligand_index) {
                             efp->pair_energies[fr_j].exchange_repulsion = exr;
                             efp->pair_energies[fr_j].charge_penetration = ecp;
                         }
-                        if (fr_j == efp->opts.ligand) {
+                        if (fr_j == efp->ligand_index) {
                             efp->pair_energies[i].exchange_repulsion = exr;
                             efp->pair_energies[i].charge_penetration = ecp;
                         }
@@ -531,9 +535,9 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
 					e_elec += e_elec_tmp;
 					/* */
 					if (efp->opts.enable_pairwise) {
-                        if (i == efp->opts.ligand) 
+                        if (i == efp->ligand_index)
                             efp->pair_energies[fr_j].electrostatic = e_elec_tmp;                       
-                        if (fr_j == efp->opts.ligand) 
+                        if (fr_j == efp->ligand_index)
                             efp->pair_energies[i].electrostatic = e_elec_tmp;
                     }
 				}
@@ -1181,6 +1185,7 @@ efp_prepare(struct efp *efp)
 		efp->n_polarizable_pts += efp->frags[i].n_polarizable_pts;
 	}
 
+	/*
 	efp->n_fragment_field_pts = 0;
 	if (efp->opts.enable_pairwise && efp->opts.ligand != -1) {
 		size_t ligand_idx = efp->opts.ligand;
@@ -1190,6 +1195,7 @@ efp_prepare(struct efp *efp)
 		}
 	}
 	efp->fragment_field = (vec_t *)calloc(efp->n_fragment_field_pts, sizeof(vec_t));
+*/
 
 	efp->grad = (six_t *)calloc(efp->n_frag, sizeof(six_t));
 	efp->skiplist = (char *)calloc(efp->n_frag * efp->n_frag, 1);
@@ -1759,6 +1765,9 @@ efp_shutdown(struct efp *efp)
         free_frag(efp->lib_current[i]);
         free(efp->lib_current[i]);
     }
+
+    free_ligand(efp->ligand);
+    free(efp->ligand);
 	free(efp->frags);
 	free(efp->lib);
     free(efp->lib_current);
@@ -1769,7 +1778,7 @@ efp_shutdown(struct efp *efp)
 	free(efp->ai_orbital_energies);
 	free(efp->ai_dipole_integrals);
 	free(efp->skiplist);
-	free(efp->fragment_field);
+	// free(efp->fragment_field);
 	free(efp->pair_energies);
     free(efp->symmlist);
 	free(efp);
@@ -1872,13 +1881,45 @@ efp_add_fragment(struct efp *efp, const char *name)
 	return EFP_RESULT_SUCCESS;
 }
 
-EFP_EXPORT enum efp_result
-efp_add_ligand(struct efp *efp, const char *name) {
-    assert(efp);
-    assert(name);
 
-    check_fail(efp_add_fragment(efp, name));
-    check_fail(make_ligand(efp));
+EFP_EXPORT enum efp_result
+efp_add_ligand(struct efp *efp, int ligand_index) {
+
+    assert(efp);
+    assert(ligand_index >= -1);
+
+    // ligand_index=-1 means ligand is QM; -100 is default when ligand is not specified
+    // 0 and larger: ligand is a fragment with with index
+    if (ligand_index > -1) {
+        assert( (size_t)ligand_index < efp->n_frag);
+        efp->ligand_index = (size_t)ligand_index;
+
+        efp->ligand = (struct ligand *) calloc(1, sizeof(struct ligand));
+        if (efp->ligand == NULL)
+            return EFP_RESULT_NO_MEMORY;
+
+        struct ligand *lig = efp->ligand;
+
+        // copy_frag(lig->ligand_frag, &efp->frags[ligand_index]);
+        lig->ligand_frag = &efp->frags[ligand_index];
+        lig->n_ligand_pts = efp->frags[ligand_index].n_polarizable_pts;
+
+        size_t size;
+        size = lig->n_ligand_pts * sizeof(struct ligand_pt);
+        lig->ligand_pts = (struct ligand_pt *) malloc(size);
+        if (lig->ligand_pts == NULL)
+            return EFP_RESULT_NO_MEMORY;
+
+        for (size_t i = 0; i < lig->n_ligand_pts; i++) {
+            struct ligand_pt *pt = lig->ligand_pts + i;
+            size = efp->n_frag * sizeof(vec_t);
+            pt->n_frag = efp->n_frag;
+            pt->fragment_field = (vec_t *) malloc(size);
+            if (!pt->fragment_field)
+                return EFP_RESULT_NO_MEMORY;
+        }
+    }
+    return EFP_RESULT_SUCCESS;
 }
 
 EFP_EXPORT enum efp_result
@@ -2303,6 +2344,17 @@ print_pol_pt(struct efp *efp, size_t frag_index, size_t pol_index) {
     printf("\n");
 }
 
+void print_ligand(struct efp *efp, size_t frag_index) {
+    if (! efp->opts.enable_pairwise)
+        return;
+    if (efp->ligand_index == frag_index) {
+        printf("Ligand index %d\n", efp->ligand_index);
+        if (efp->ligand_index > -1) {
+            printf("Number of ligand points %d", efp->ligand->n_ligand_pts);
+        }
+    }
+}
+
 void
 print_frag_info(struct efp *efp, size_t frag_index) {
     struct frag *fr = efp->frags + frag_index;
@@ -2319,6 +2371,8 @@ print_frag_info(struct efp *efp, size_t frag_index) {
     for (int i=0; i < fr->n_polarizable_pts; i++) {
         print_pol_pt(efp, frag_index, i);
     }
+
+    print_ligand(efp, frag_index);
 
     printf("\n");
 }

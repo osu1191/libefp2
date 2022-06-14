@@ -253,6 +253,10 @@ next:
 	if (cfg_get_bool(cfg, "enable_pbc"))
 		cfg_set_bool(cfg, "enable_cutoff", true);
 
+	// turn off pairwise calculations if ligand is not set
+	if (cfg_get_int(cfg, "ligand") == -100 && cfg_get_bool(cfg, "enable_pairwise") == true)
+	    error("Specify ligand for pairwise calculations");
+
 	check_cfg(cfg);
 	efp_stream_close(stream);
 
