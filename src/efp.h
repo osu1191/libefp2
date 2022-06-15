@@ -177,6 +177,8 @@ struct efp_opts {
     int update_params;
     /** Cutoff when updating parameters is "safe". Default 0.0 (never safe) */
     double update_params_cutoff;
+    /** Level of print out */
+    int print;
 };
 
 /** EFP energy terms. */

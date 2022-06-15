@@ -449,7 +449,8 @@ check_params(struct efp *efp)
 	enum efp_result res;
 
 	for (size_t i = 0; i < efp->n_frag; i++) {
-	    // print_frag_info(efp, i);
+        if (efp->opts.print > 1)
+            print_frag_info(efp, i);
         if ((res = check_frag_params(&efp->opts, efp->frags + i))) {
             efp_log("check_params() failure");
             return res;

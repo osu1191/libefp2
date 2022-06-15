@@ -166,6 +166,8 @@ static struct cfg *make_cfg(void)
     cfg_add_int(cfg, "update_params", 0);
     cfg_add_double(cfg, "update_params_cutoff", 0.0);
 
+    cfg_add_int(cfg, "print", 0);
+
     return cfg;
 }
 
@@ -286,7 +288,8 @@ static struct efp *create_efp(const struct cfg *cfg, const struct sys *sys)
         .symmetry = cfg_get_bool(cfg, "symmetry"),
         .symm_frag = cfg_get_enum(cfg, "symm_frag"),
         .update_params = cfg_get_int(cfg, "update_params"),
-        .update_params_cutoff = cfg_get_double(cfg, "update_params_cutoff")
+        .update_params_cutoff = cfg_get_double(cfg, "update_params_cutoff"),
+        .print = cfg_get_int(cfg, "print")
 	};
 
 	if (opts.xr_cutoff == 0.0) {

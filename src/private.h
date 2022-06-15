@@ -186,8 +186,6 @@ struct frag {
 	/* offset of polarizable points for this fragment */
 	size_t polarizable_offset;
 
-	/* offset of fragment field points for this fragment */
-	// size_t fragment_field_offset;
 };
 
 /* structure derived from struct frag for describing ligand */
@@ -260,26 +258,8 @@ struct efp {
 	/* gradient on point charges */
 	vec_t *ptc_grad;
 
-	/* polarization induced dipoles */
-	// vec_t *indip;
-
-	/* polarization conjugate induced dipoles */
-	// vec_t *indipconj;
-
-    /* polarization induced dipoles */
-    // vec_t *indip_old;
-
-    /* polarization conjugate induced dipoles */
-    // vec_t *indipconj_old;
-
     /* total number of polarizable points */
 	size_t n_polarizable_pts;
-
-	/* total number of points to store electric field due to ligand */
-	// size_t n_fragment_field_pts;
-
-	/* electric field on ligand points due to fragments */
-	// vec_t *fragment_field;
 
 	/* number of core orbitals in ab initio subsystem */
 	size_t n_ai_core;
