@@ -81,34 +81,40 @@ get_multipole_field(const vec_t *xyz, const struct multipole_pt *mult_pt,
 	double r7 = r5 * r * r;
 
 	/* charge */
-	field.x += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.x / r3;
-	field.y += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.y / r3;
-	field.z += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.z / r3;
+	if (mult_pt->if_mon || mult_pt->if_dip) {
+        field.x += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.x / r3;
+        field.y += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.y / r3;
+        field.z += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.z / r3;
+    }
 
 	/* dipole */
-	t1 = vec_dot(&mult_pt->dipole, &dr);
+	if (mult_pt->if_dip) {
+        t1 = vec_dot(&mult_pt->dipole, &dr);
 
-	field.x += swf->swf * (3.0 / r5 * t1 * dr.x - mult_pt->dipole.x / r3);
-	field.y += swf->swf * (3.0 / r5 * t1 * dr.y - mult_pt->dipole.y / r3);
-	field.z += swf->swf * (3.0 / r5 * t1 * dr.z - mult_pt->dipole.z / r3);
+        field.x += swf->swf * (3.0 / r5 * t1 * dr.x - mult_pt->dipole.x / r3);
+        field.y += swf->swf * (3.0 / r5 * t1 * dr.y - mult_pt->dipole.y / r3);
+        field.z += swf->swf * (3.0 / r5 * t1 * dr.z - mult_pt->dipole.z / r3);
+    }
 
 	/* quadrupole */
-	t1 = quadrupole_sum(mult_pt->quadrupole, &dr);
+    if (mult_pt->if_quad) {
+        t1 = quadrupole_sum(mult_pt->quadrupole, &dr);
 
-	t2 = mult_pt->quadrupole[quad_idx(0, 0)] * dr.x +
-	     mult_pt->quadrupole[quad_idx(1, 0)] * dr.y +
-	     mult_pt->quadrupole[quad_idx(2, 0)] * dr.z;
-	field.x += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.x);
+        t2 = mult_pt->quadrupole[quad_idx(0, 0)] * dr.x +
+             mult_pt->quadrupole[quad_idx(1, 0)] * dr.y +
+             mult_pt->quadrupole[quad_idx(2, 0)] * dr.z;
+        field.x += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.x);
 
-	t2 = mult_pt->quadrupole[quad_idx(0, 1)] * dr.x +
-	     mult_pt->quadrupole[quad_idx(1, 1)] * dr.y +
-	     mult_pt->quadrupole[quad_idx(2, 1)] * dr.z;
-	field.y += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.y);
+        t2 = mult_pt->quadrupole[quad_idx(0, 1)] * dr.x +
+             mult_pt->quadrupole[quad_idx(1, 1)] * dr.y +
+             mult_pt->quadrupole[quad_idx(2, 1)] * dr.z;
+        field.y += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.y);
 
-	t2 = mult_pt->quadrupole[quad_idx(0, 2)] * dr.x +
-	     mult_pt->quadrupole[quad_idx(1, 2)] * dr.y +
-	     mult_pt->quadrupole[quad_idx(2, 2)] * dr.z;
-	field.z += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.z);
+        t2 = mult_pt->quadrupole[quad_idx(0, 2)] * dr.x +
+             mult_pt->quadrupole[quad_idx(1, 2)] * dr.y +
+             mult_pt->quadrupole[quad_idx(2, 2)] * dr.z;
+        field.z += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.z);
+    }
 
 	/* octupole-polarizability interactions are ignored */
 
@@ -133,16 +139,20 @@ get_multipole_elec_potential(const vec_t *xyz, const struct multipole_pt *mult_p
     double r7 = r5 * r * r;
 
     /* charge */
-    elpot += swf->swf * (mult_pt->monopole + mult_pt->znuc) / r;
+    if (mult_pt->if_mon || mult_pt->if_dip)
+        elpot += swf->swf * (mult_pt->monopole + mult_pt->znuc) / r;
 
     /* dipole */
-    elpot += swf->swf * vec_dot(&mult_pt->dipole, &dr) / r3;
+    if (mult_pt->if_dip)
+        elpot += swf->swf * vec_dot(&mult_pt->dipole, &dr) / r3;
 
     /* quadrupole */
-    elpot += swf->swf * quadrupole_sum(mult_pt->quadrupole, &dr) / r5;
+    if (mult_pt->if_quad)
+        elpot += swf->swf * quadrupole_sum(mult_pt->quadrupole, &dr) / r5;
 
     /* octupole */
-    elpot += swf->swf * octupole_sum(mult_pt->octupole, &dr) / r7;
+    if (mult_pt->if_oct)
+        elpot += swf->swf * octupole_sum(mult_pt->octupole, &dr) / r7;
 
     return elpot;
 }
@@ -208,7 +218,8 @@ get_elec_field(const struct efp *efp, size_t frag_idx, size_t pt_idx)
 	return elec_field;
 }
 
-/* this function computes electric field on a polarizable point pt_idx of fragment frag_idx due to other fragment ligand_idx */
+/* this function computes electric field on a polarizable point pt_idx
+ * of fragment frag_idx due to other fragment ligand_idx */
 static vec_t
 get_ligand_field(const struct efp *efp, size_t frag_idx, size_t pt_idx, int ligand_idx)
 {
@@ -987,6 +998,23 @@ efp_compute_pol_energy_crystal(struct efp *efp, double *energy)
 
     assert(energy);
 
+    // counter to know when to zero out induced dipoles and static field
+    static int counter_crystal = 0;
+
+    // return true (to zero out induced dipoles) only when efp_compute_pol_energy is called
+    // the very first time
+    // do not zero induced dipoles in md, optimization, qm scf iterations etc...
+    if ( if_clean_indip(efp, counter_crystal) ) {
+        efp_balance_work(efp, zero_ind_dipoles, NULL);
+    }
+
+    // return true (to zero out static fields
+    // the very first time
+    // think how to skip recomputing static field in qm scf iterations
+    // check on efp->do_gradient breaks gtests...
+    if ( if_clean_field(efp, counter_crystal) )
+        efp_balance_work(efp, zero_static_field, NULL);
+
     if (res = compute_elec_field_crystal(efp))
         return res;
 
@@ -1060,30 +1088,36 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 			add_j = vec_zero;
 
 			/* induced dipole - charge+monopole */
-			double qj = pt_j->monopole + pt_j->znuc;
-			e = -efp_charge_dipole_energy(qj, &dipole_i, &dr);
-			efp_charge_dipole_grad(qj, &dipole_i, &dr,
-			    &force_, &add_j_, &add_i_);
-			vec_negate(&force_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+			if (pt_j->if_mon || pt_j->if_znuc) {
+                double qj = pt_j->monopole + pt_j->znuc;
+                e = -efp_charge_dipole_energy(qj, &dipole_i, &dr);
+                efp_charge_dipole_grad(qj, &dipole_i, &dr,
+                                       &force_, &add_j_, &add_i_);
+                vec_negate(&force_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* induced dipole - dipole */
-			e += efp_dipole_dipole_energy(&dipole_i,
-			    &pt_j->dipole, &dr);
-			efp_dipole_dipole_grad(&dipole_i, &pt_j->dipole, &dr,
-			    &force_, &add_i_, &add_j_);
-			vec_negate(&add_j_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+			if (pt_j->if_dip) {
+                e += efp_dipole_dipole_energy(&dipole_i,
+                                              &pt_j->dipole, &dr);
+                efp_dipole_dipole_grad(&dipole_i, &pt_j->dipole, &dr,
+                                       &force_, &add_i_, &add_j_);
+                vec_negate(&add_j_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* induced dipole - quadrupole */
-			e += efp_dipole_quadrupole_energy(&dipole_i,
-			    pt_j->quadrupole, &dr);
-			efp_dipole_quadrupole_grad(&dipole_i, pt_j->quadrupole,
-			    &dr, &force_, &add_i_, &add_j_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+            if (pt_j->if_dip) {
+                e += efp_dipole_quadrupole_energy(&dipole_i,
+                                                  pt_j->quadrupole, &dr);
+                efp_dipole_quadrupole_grad(&dipole_i, pt_j->quadrupole,
+                                           &dr, &force_, &add_i_, &add_j_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* induced dipole - octupole interactions are ignored */
 

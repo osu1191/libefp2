@@ -409,25 +409,35 @@ check_frag_params(const struct efp_opts *opts, struct frag *frag)
 {
 	if ((opts->terms & EFP_TERM_ELEC) || (opts->terms & EFP_TERM_AI_ELEC)) {
 		if (!frag->multipole_pts) {
-			efp_log("electrostatic parameters are missing");
-			return EFP_RESULT_FATAL;
+		    printf("WARNING! Multipole parameters are missing on fragment %s\n", frag->name);
+			// efp_log("electrostatic parameters are missing");
+			// return EFP_RESULT_FATAL;
 		}
 	}
 	if ((opts->terms & EFP_TERM_POL) || (opts->terms & EFP_TERM_AI_POL)) {
-		if (!frag->polarizable_pts || !frag->multipole_pts) {
-			efp_log("polarization parameters are missing");
-			return EFP_RESULT_FATAL;
+		if (!frag->multipole_pts)
+            printf("WARNING! Multipole parameters are missing on fragment %s\n", frag->name);
+		if (!frag->polarizable_pts) {
+            printf("WARNING! Polarizability parameters are missing on fragment %s\n", frag->name);
+
+			// efp_log("polarization parameters are missing");
+			// return EFP_RESULT_FATAL;
 		}
 	}
 	if ((opts->terms & EFP_TERM_DISP) || (opts->terms & EFP_TERM_AI_DISP)) {
 		if (frag->dynamic_polarizable_pts == NULL) {
-			efp_log("dispersion parameters are missing");
-			return EFP_RESULT_FATAL;
+            printf("WARNING! Dynamic polarizability parameters are "
+                   "missing on fragment %s\n", frag->name);
+
+            // efp_log("dispersion parameters are missing");
+			// return EFP_RESULT_FATAL;
 		}
 		if (opts->disp_damp == EFP_DISP_DAMP_OVERLAP &&
 		    frag->n_lmo != frag->n_dynamic_polarizable_pts) {
-			efp_log("number of polarization points does not "
-			    "match number of LMOs");
+			//efp_log("number of polarization points does not "
+			//    "match number of LMOs");
+			printf("FATAL ERROR! The number of polarization points does not "
+                        "match the number of LMOs of fragment %s\n", frag->name);
 			return EFP_RESULT_FATAL;
 		}
 	}
@@ -436,8 +446,10 @@ check_frag_params(const struct efp_opts *opts, struct frag *frag)
 		    !frag->xr_fock_mat ||
 		    !frag->xr_wf ||
 		    !frag->lmo_centroids) {
-			efp_log("exchange repulsion parameters are missing");
-			return EFP_RESULT_FATAL;
+            printf("WARNING! Exchange-repulsion parameters are "
+                        "missing on fragment %s\n", frag->name);
+			//efp_log("exchange repulsion parameters are missing");
+			//return EFP_RESULT_FATAL;
 		}
 	}
 	return EFP_RESULT_SUCCESS;
@@ -507,30 +519,34 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
 				size_t n_lmo_ij = efp->frags[i].n_lmo *
 				    efp->frags[fr_j].n_lmo;
 
-				s = (double *)calloc(n_lmo_ij, sizeof(double));
-				ds = (six_t *)calloc(n_lmo_ij, sizeof(six_t));
+				// ugly but simple check when not to compute exchange-repulsion and overlap screening
+				if (n_lmo_ij > 0) {
+                    s = (double *) calloc(n_lmo_ij, sizeof(double));
+                    ds = (six_t *) calloc(n_lmo_ij, sizeof(six_t));
 
-				if (do_xr(&efp->opts)) {
-					double exr, ecp;
+                    if (do_xr(&efp->opts)) {
+                        double exr, ecp;
 
-					efp_frag_frag_xr(efp, i, fr_j,
-					    s, ds, &exr, &ecp);
-					e_xr += exr;
-					e_cp += ecp;
+                        efp_frag_frag_xr(efp, i, fr_j,
+                                         s, ds, &exr, &ecp);
+                        e_xr += exr;
+                        e_cp += ecp;
 
-					/* */
-					if (efp->opts.enable_pairwise) {
-                        if (i == efp->ligand_index) {
-                            efp->pair_energies[fr_j].exchange_repulsion = exr;
-                            efp->pair_energies[fr_j].charge_penetration = ecp;
-                        }
-                        if (fr_j == efp->ligand_index) {
-                            efp->pair_energies[i].exchange_repulsion = exr;
-                            efp->pair_energies[i].charge_penetration = ecp;
+                        /* */
+                        if (efp->opts.enable_pairwise) {
+                            if (i == efp->ligand_index) {
+                                efp->pair_energies[fr_j].exchange_repulsion = exr;
+                                efp->pair_energies[fr_j].charge_penetration = ecp;
+                            }
+                            if (fr_j == efp->ligand_index) {
+                                efp->pair_energies[i].exchange_repulsion = exr;
+                                efp->pair_energies[i].charge_penetration = ecp;
+                            }
                         }
                     }
-				}
-				if (do_elec(&efp->opts)) {
+                }
+				if (do_elec(&efp->opts) && efp->frags[i].n_multipole_pts > 0 &&
+				    efp->frags[fr_j].n_multipole_pts > 0) {
 					e_elec_tmp = efp_frag_frag_elec(efp,
 					    i, fr_j);
 					e_elec += e_elec_tmp;
@@ -542,7 +558,8 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
                             efp->pair_energies[i].electrostatic = e_elec_tmp;
                     }
 				}
-				if (do_disp(&efp->opts)) {
+				if (do_disp(&efp->opts) && efp->frags[i].n_dynamic_polarizable_pts > 0 &&
+                        efp->frags[fr_j].n_dynamic_polarizable_pts > 0) {
 					e_disp_tmp = efp_frag_frag_disp(efp,
 					    i, fr_j, s, ds);
 					e_disp += e_disp_tmp;
@@ -554,8 +571,10 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
                             efp->pair_energies[i].dispersion = e_disp_tmp;
                     }
 				}
-				free(s);
-				free(ds);
+                if (n_lmo_ij > 0) {
+                    free(s);
+                    free(ds);
+                }
 			}
 		}
 	}
@@ -593,33 +612,35 @@ compute_two_body_crystal(struct efp *efp)
                 six_t *ds;
                 size_t n_lmo_ij = efp->frags[i].n_lmo *
                                   efp->frags[fr_j].n_lmo;
+                // if need to compute exrep and overlap screening for this pair
+                if (n_lmo_ij > 0) {
+                    s = (double *) calloc(n_lmo_ij, sizeof(double));
+                    ds = (six_t *) calloc(n_lmo_ij, sizeof(six_t));
 
-                s = (double *)calloc(n_lmo_ij, sizeof(double));
-                ds = (six_t *)calloc(n_lmo_ij, sizeof(six_t));
+                    if (do_xr(&efp->opts)) {
+                        double exr, ecp;
 
-                if (do_xr(&efp->opts)) {
-                    double exr, ecp;
+                        efp_frag_frag_xr(efp, i, fr_j,
+                                         s, ds, &exr, &ecp);
+                        e_xr += exr * factor;
+                        e_cp += ecp * factor;
 
-                    efp_frag_frag_xr(efp, i, fr_j,
-                                     s, ds, &exr, &ecp);
-                    e_xr += exr * factor;
-                    e_cp += ecp * factor;
-
-                    /* */
-                    if (efp->opts.enable_pairwise) {
-                        if (i == efp->opts.ligand) {
-                            efp->pair_energies[fr_j].exchange_repulsion = exr;
-                            efp->pair_energies[fr_j].charge_penetration = ecp;
-                        }
-                        if (fr_j == efp->opts.ligand) {
-                            efp->pair_energies[i].exchange_repulsion = exr;
-                            efp->pair_energies[i].charge_penetration = ecp;
+                        /* */
+                        if (efp->opts.enable_pairwise) {
+                            if (i == efp->opts.ligand) {
+                                efp->pair_energies[fr_j].exchange_repulsion = exr;
+                                efp->pair_energies[fr_j].charge_penetration = ecp;
+                            }
+                            if (fr_j == efp->opts.ligand) {
+                                efp->pair_energies[i].exchange_repulsion = exr;
+                                efp->pair_energies[i].charge_penetration = ecp;
+                            }
                         }
                     }
                 }
-                if (do_elec(&efp->opts)) {
-                    e_elec_tmp = efp_frag_frag_elec(efp,
-                                                    i, fr_j);
+                if (do_elec(&efp->opts) && efp->frags[i].n_multipole_pts > 0 &&
+                    efp->frags[fr_j].n_multipole_pts > 0) {
+                    e_elec_tmp = efp_frag_frag_elec(efp, i, fr_j);
                     e_elec += e_elec_tmp * factor;
 
                     /* */
@@ -630,9 +651,9 @@ compute_two_body_crystal(struct efp *efp)
                             efp->pair_energies[i].electrostatic = e_elec_tmp;
                     }
                 }
-                if (do_disp(&efp->opts)) {
-                    e_disp_tmp = efp_frag_frag_disp(efp,
-                                                    i, fr_j, s, ds);
+                if (do_disp(&efp->opts) && efp->frags[i].n_dynamic_polarizable_pts > 0 &&
+                    efp->frags[fr_j].n_dynamic_polarizable_pts > 0) {
+                    e_disp_tmp = efp_frag_frag_disp(efp, i, fr_j, s, ds);
                     e_disp += e_disp_tmp * factor;
                     /* */
                     if (efp->opts.enable_pairwise) {
@@ -642,9 +663,10 @@ compute_two_body_crystal(struct efp *efp)
                             efp->pair_energies[i].dispersion = e_disp_tmp;
                     }
                 }
-                free(s);
-                free(ds);
-
+                if (n_lmo_ij > 0) {
+                    free(s);
+                    free(ds);
+                }
             }
         }
     }
@@ -1284,6 +1306,8 @@ efp_compute(struct efp *efp, int do_gradient)
 
 	assert(efp);
 
+	static int efp_counter = 0;
+
 	if (efp->grad == NULL) {
 		efp_log("call efp_prepare after all fragments are added");
 		return EFP_RESULT_FATAL;
@@ -1291,10 +1315,11 @@ efp_compute(struct efp *efp, int do_gradient)
 
 	efp->do_gradient = do_gradient;
 
-	if ((res = check_params(efp))) {
-        efp_log("check_params() failure");
-        return res;
-	}
+	if (efp_counter == 0)
+	    if ((res = check_params(efp))) {
+            efp_log("check_params() failure");
+            return res;
+	    }
 
 	memset(&efp->energy, 0, sizeof(efp->energy));
 	memset(&efp->stress, 0, sizeof(efp->stress));
@@ -1344,6 +1369,8 @@ efp_compute(struct efp *efp, int do_gradient)
 			    efp->energy.dispersion +
 			    efp->energy.ai_dispersion +
 			    efp->energy.exchange_repulsion;
+
+	efp_counter++;
 
 	return EFP_RESULT_SUCCESS;
 }
