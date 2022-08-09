@@ -28,6 +28,7 @@
 #define LIBEFP_EFP_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 /** \file efp.h
  * Public libefp interface.
@@ -226,12 +227,27 @@ struct efp_energy {
 
 /** EFP atom info. */
 struct efp_atom {
-	char label[32];   /**< Atom label. */
-	double x;         /**< X coordinate of atom position. */
-	double y;         /**< Y coordinate of atom position. */
-	double z;         /**< Z coordinate of atom position. */
-	double mass;      /**< Atom mass. */
-	double znuc;      /**< Nuclear charge. */
+    char label[32];   /**< Atom label. */
+    double x;         /**< X coordinate of atom position. */
+    double y;         /**< Y coordinate of atom position. */
+    double z;         /**< Z coordinate of atom position. */
+    double mass;      /**< Atom mass. */
+    double znuc;      /**< Nuclear charge. */
+};
+
+/** Multipole point for working with external programs */
+struct efp_mult_pt {
+    double x;         /**< X coordinate */
+    double y;         /**< Y coordinate */
+    double z;         /**< Z coordinate */
+    double znuc;      /**< Nuclear charge */
+    double monopole;  /**< Monopole */
+    double dipole[3];  /**< Dipole */
+    double quadrupole[6];  /**< Quadrupole */
+    double octupole[10];  /**< Octupole */
+    size_t rank;  /** < Highest non-zero multipole: 0 - monopole, 1 - dipole, 2 - quad, 3 - oct */
+    double screen0;   /**< AI-EFP screening parameter */
+    bool if_screen; /**< If screen0 parameter exists and meaningful */
 };
 
 /**
@@ -809,6 +825,9 @@ enum efp_result efp_get_frag_multiplicity(struct efp *efp, size_t frag_idx,
 enum efp_result efp_get_frag_multipole_count(struct efp *efp, size_t frag_idx,
     size_t *n_mult);
 
+enum efp_result efp_get_frag_multipole_coord(struct efp *efp, size_t frag_idx,
+                                             size_t *n_mult);
+
 /**
  *
  * @param[in] efp The efp structure
@@ -820,7 +839,18 @@ enum efp_result efp_get_frag_multipole_count(struct efp *efp, size_t frag_idx,
  * If all values are zero, rank = -1.
  * @return
  */
-enum efp_result efp_get_frag_mult_rank(struct efp *efp, size_t frag_idx, size_t mult_idx, size_t *rank);
+// enum efp_result efp_get_frag_mult_rank(struct efp *efp, size_t frag_idx, size_t mult_idx, size_t *rank);
+
+/**
+ * Computes multipole rank of a fragment
+ * @param efp
+ * @param[in] frag_idx fragment index
+ * @param[out] rank Highest rank of multipoles in the fragment
+ * (0 - charge, 1 - dipole, 2 - quad, 3 - oct)
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result
+efp_get_frag_rank(struct efp *efp, size_t frag_idx, size_t *rank);
 
 /**
  * Get total number of multipoles from EFP electrostatics.
@@ -1208,6 +1238,19 @@ enum efp_result efp_get_frag_atoms(struct efp *efp, size_t frag_idx,
 enum efp_result efp_set_frag_atoms(struct efp *efp, size_t frag_idx, size_t n_atoms,
                    struct efp_atom *atoms);
 
+/** Copies information about multipole point pt_idx at fragment frag_idx into
+ * efp_mult_pt structure mult_pt
+ *
+ * @param[in] efp
+ * @param[in] frag_idx Fragment index
+ * @param[in] pt_idx Multipole point index
+ * @param[out] mult_pt efp_mult_pt to be returned
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result
+efp_get_frag_mult_pt(struct efp *efp, size_t frag_idx, size_t pt_idx,
+                     struct efp_mult_pt *mult_pt);
+
 /**
  * Get electric field for a point on a fragment.
  *
@@ -1391,6 +1434,12 @@ void print_ligand(struct efp *efp, size_t frag_index);
  * @param frag_index fragment index
  */
 void print_frag_info(struct efp *efp, size_t frag_index);
+
+/**
+ * Prints information of efp_mult_pt object
+ * @param pt
+ */
+void print_efp_mult_pt(struct efp_mult_pt *pt);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -1419,6 +1419,7 @@ efp_get_frag_multipole_count(struct efp *efp, size_t frag_idx, size_t *n_mult)
 	return EFP_RESULT_SUCCESS;
 }
 
+/*
 EFP_EXPORT enum efp_result
 efp_get_frag_mult_rank(struct efp *efp, size_t frag_idx, size_t mult_idx, size_t *rank)
 {
@@ -1452,6 +1453,35 @@ efp_get_frag_mult_rank(struct efp *efp, size_t frag_idx, size_t mult_idx, size_t
     if (pt->monopole != 0) {
         *rank = 0;
         return EFP_RESULT_SUCCESS;
+    }
+
+    return EFP_RESULT_SUCCESS;
+}
+*/
+
+EFP_EXPORT enum efp_result
+efp_get_frag_rank(struct efp *efp, size_t frag_idx, size_t *rank)
+{
+    assert(efp);
+    assert(rank);
+    assert(frag_idx < efp->n_frag);
+
+    struct frag *frag = efp->frags + frag_idx;
+
+    *rank = 0;
+    for (size_t i=0; i<frag->n_multipole_pts; i++) {
+        struct multipole_pt *pt = frag->multipole_pts + i;
+        size_t rank_tmp = 0;
+        if (pt->if_dip)
+            rank_tmp = 1;
+        if (pt->if_quad)
+            rank_tmp = 2;
+        if (pt->if_oct)
+            rank_tmp = 3;
+        if (rank_tmp > *rank)
+            *rank = rank_tmp;
+        if (*rank == 3)
+            break;
     }
 
     return EFP_RESULT_SUCCESS;
@@ -2113,6 +2143,45 @@ efp_set_frag_atoms(struct efp *efp, size_t frag_idx, size_t n_atoms,
     return EFP_RESULT_SUCCESS;
 }
 
+EFP_EXPORT enum efp_result
+efp_get_frag_mult_pt(struct efp *efp, size_t frag_idx, size_t pt_idx,
+                   struct efp_mult_pt *mult_pt)
+{
+    assert(efp);
+    assert(mult_pt);
+    assert(frag_idx < efp->n_frag);
+    assert(pt_idx < efp->frags[frag_idx].n_multipole_pts);
+
+    struct frag *frag;
+    frag = efp->frags + frag_idx;
+    struct multipole_pt *pt;
+    pt = frag->multipole_pts + pt_idx;
+
+    mult_pt->x = pt->x;
+    mult_pt->y = pt->y;
+    mult_pt->z = pt->z;
+    mult_pt->znuc = pt->znuc;
+    mult_pt->monopole = pt->monopole;
+    mult_pt->dipole[0] = pt->dipole.x;
+    mult_pt->dipole[1] = pt->dipole.y;
+    mult_pt->dipole[2] = pt->dipole.z;
+    for (size_t i=0; i<6; i++)
+        mult_pt->quadrupole[i] = pt->quadrupole[i];
+    for (size_t i=0; i<10; i++)
+        mult_pt->octupole[i] = pt->octupole[i];
+    mult_pt->screen0 = pt->screen0;
+    mult_pt->if_screen = pt->if_scr0;
+    mult_pt->rank = 0;
+    if ( pt->if_dip )
+        mult_pt->rank = 1;
+    if ( pt->if_quad )
+        mult_pt->rank = 2;
+    if ( pt->if_oct )
+        mult_pt->rank = 3;
+
+    return EFP_RESULT_SUCCESS;
+}
+
 EFP_EXPORT void
 efp_torque_to_derivative(const double *euler, const double *torque,
     double *deriv)
@@ -2402,5 +2471,30 @@ print_frag_info(struct efp *efp, size_t frag_index) {
 
     print_ligand(efp, frag_index);
 
+    for (int i=0; i < fr->n_multipole_pts; i++) {
+        struct efp_mult_pt *pt;
+        pt = (struct efp_mult_pt *)malloc(sizeof(struct efp_mult_pt));
+
+        efp_get_frag_mult_pt(efp, frag_index, i, pt);
+        print_efp_mult_pt(pt);
+
+        free(pt);
+    }
+
+    printf("\n");
+}
+
+void
+print_efp_mult_pt(struct efp_mult_pt *pt) {
+    printf(" Multipole point of rank     %d\n", pt->rank);
+    printf(" Coordinates    %lf %lf %lf\n", pt->x, pt->y, pt->z);
+    printf(" znuc, monopole %lf %lf\n", pt->znuc, pt->monopole);
+    printf(" dipole         %lf %lf %lf\n", pt->dipole[0], pt->dipole[1], pt->dipole[2]);
+    printf(" duadrupole %lf %lf %lf %lf %lf %lf\n", pt->quadrupole[0], pt->quadrupole[1],
+           pt->quadrupole[2], pt->quadrupole[3], pt->quadrupole[4], pt->quadrupole[5]);
+    printf(" octupole   %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf\n",
+           pt->octupole[0], pt->octupole[1], pt->octupole[2], pt->octupole[3], pt->octupole[4],
+           pt->octupole[5], pt->octupole[6], pt->octupole[7], pt->octupole[8], pt->octupole[9]);
+    printf(" screen0 = %lf, if_screen0 = %s\n", pt->screen0, pt->if_screen ? "true" : "false");
     printf("\n");
 }
