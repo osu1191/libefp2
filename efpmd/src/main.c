@@ -152,7 +152,7 @@ static struct cfg *make_cfg(void)
 	cfg_add_double(cfg, "thermostat_tau", 1.0e3);
 	cfg_add_double(cfg, "barostat_tau", 1.0e4);
 
-	cfg_add_int(cfg, "ligand", 0); 
+	cfg_add_int(cfg, "ligand", -100);
     cfg_add_bool(cfg, "enable_pairwise", false);
     cfg_add_bool(cfg, "print_pbc", false);
     cfg_add_bool(cfg, "symmetry", false);
@@ -165,6 +165,8 @@ static struct cfg *make_cfg(void)
 
     cfg_add_int(cfg, "update_params", 0);
     cfg_add_double(cfg, "update_params_cutoff", 0.0);
+
+    cfg_add_int(cfg, "print", 0);
 
     return cfg;
 }
@@ -286,12 +288,13 @@ static struct efp *create_efp(const struct cfg *cfg, const struct sys *sys)
         .symmetry = cfg_get_bool(cfg, "symmetry"),
         .symm_frag = cfg_get_enum(cfg, "symm_frag"),
         .update_params = cfg_get_int(cfg, "update_params"),
-        .update_params_cutoff = cfg_get_double(cfg, "update_params_cutoff")
+        .update_params_cutoff = cfg_get_double(cfg, "update_params_cutoff"),
+        .print = cfg_get_int(cfg, "print")
 	};
 
 	if (opts.xr_cutoff == 0.0) {
 	    opts.xr_cutoff = opts.swf_cutoff;
-	    printf("xr_cutoff is set to %lf \n\n\n", opts.xr_cutoff*0.52917721092);
+	    printf("xr_cutoff is set to %lf \n\n", opts.xr_cutoff*0.52917721092);
 	}
 
 	enum efp_coord_type coord_type = cfg_get_enum(cfg, "coord");
@@ -306,7 +309,7 @@ static struct efp *create_efp(const struct cfg *cfg, const struct sys *sys)
 		add_potentials(efp, cfg, sys);
 
 	for (size_t i = 0; i < sys->n_frags; i++)
-		check_fail(efp_add_fragment(efp, sys->frags[i].name));
+	    check_fail(efp_add_fragment(efp, sys->frags[i].name));
 
 	if (sys->n_charges > 0) {
 		double q[sys->n_charges];
@@ -331,7 +334,10 @@ static struct efp *create_efp(const struct cfg *cfg, const struct sys *sys)
 	if (cfg_get_bool(cfg, "enable_ff"))
 		opts.terms &= ~(EFP_TERM_ELEC | EFP_TERM_POL | EFP_TERM_DISP | EFP_TERM_XR);
 
-	check_fail(efp_set_opts(efp, &opts));
+    if (opts.enable_pairwise)
+        check_fail(efp_add_ligand(efp, opts.ligand));
+
+    check_fail(efp_set_opts(efp, &opts));
 	check_fail(efp_prepare(efp));
     check_fail(efp_set_symmlist(efp));
 

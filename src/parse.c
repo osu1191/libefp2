@@ -28,9 +28,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "stream.h"
 #include "private.h"
+
+static void init_multipole_pt(struct multipole_pt *pt) {
+    memset(pt, 0, sizeof(*pt));
+    pt->screen2 = 10.0;
+    pt->screen0 = 10.0;
+    pt->if_znuc = false;
+    pt->if_mon = false;
+    pt->if_dip = false;
+    pt->if_quad = false;
+    pt->if_oct = false;
+    pt->if_scr2 = false;
+    pt->if_scr0 = false;
+}
 
 static int
 tok(struct stream *stream, const char *id)
@@ -172,10 +186,14 @@ parse_coordinates(struct frag *frag, struct stream *stream)
 		struct multipole_pt *last_pt =
 		    frag->multipole_pts + frag->n_multipole_pts - 1;
 
-		memset(last_pt, 0, sizeof(*last_pt));
+		//memset(last_pt, 0, sizeof(*last_pt));
+		init_multipole_pt(last_pt);
+		strcpy(last_pt->label,atom.label);
 		last_pt->x = atom.x;
 		last_pt->y = atom.y;
 		last_pt->z = atom.z;
+		last_pt->znuc = atom.znuc;
+        last_pt->if_znuc = true;
 
 		efp_stream_next_line(stream);
 	}
@@ -191,13 +209,30 @@ parse_monopoles(struct frag *frag, struct stream *stream)
     }
 
 	efp_stream_next_line(stream);
-
+    int counter = 0;
 	for (size_t i = 0; i < frag->n_multipole_pts; i++) {
-		if (!skip_label(stream) ||
-		    !tok_double(stream, &frag->multipole_pts[i].monopole) ||
-		    !tok_double(stream, NULL)){
+
+        if (tok_stop(stream)) {
+            printf(" Found %d monopoles of %d expected in fragment %s \n",
+                    counter, frag->n_multipole_pts, frag->name);
+            return EFP_RESULT_SUCCESS;
+        }
+        struct multipole_pt tmp_pt;
+        memset(&tmp_pt, 0, sizeof(tmp_pt));
+        if (!tok_label(stream, sizeof(tmp_pt.label), tmp_pt.label) ||
+		    !tok_double(stream, &tmp_pt.monopole) ||
+		    !tok_double(stream, &tmp_pt.znuc)){
             efp_log("parse_monopoles() failure");
             return EFP_RESULT_SYNTAX_ERROR;
+        }
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            if (!strcmp(tmp_pt.label, frag->multipole_pts[j].label)) {
+                // found a match
+                frag->multipole_pts[j].monopole = tmp_pt.monopole;
+                frag->multipole_pts[j].if_mon = true;
+                counter++;
+                break;
+            }
         }
 		efp_stream_next_line(stream);
 	}
@@ -220,6 +255,38 @@ parse_dipoles(struct frag *frag, struct stream *stream)
 
 	efp_stream_next_line(stream);
 
+    int counter = 0;
+    for (size_t i = 0; i < frag->n_multipole_pts; i++) {
+
+        if (tok_stop(stream)) {
+            printf(" Found %d dipoles of %d expected in fragment %s \n",
+                   counter, frag->n_multipole_pts, frag->name);
+            return EFP_RESULT_SUCCESS;
+        }
+        struct multipole_pt tmp_pt;
+        memset(&tmp_pt, 0, sizeof(tmp_pt));
+        if (!tok_label(stream, sizeof(tmp_pt.label), tmp_pt.label) ||
+            !tok_double(stream, &tmp_pt.dipole.x) ||
+            !tok_double(stream, &tmp_pt.dipole.y) ||
+            !tok_double(stream, &tmp_pt.dipole.z)){
+            efp_log("parse_dipoles() failure");
+            return EFP_RESULT_SYNTAX_ERROR;
+        }
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            if (!strcmp(tmp_pt.label, frag->multipole_pts[j].label)) {
+                // found a match
+                frag->multipole_pts[j].dipole.x = tmp_pt.dipole.x;
+                frag->multipole_pts[j].dipole.y = tmp_pt.dipole.y;
+                frag->multipole_pts[j].dipole.z = tmp_pt.dipole.z;
+                frag->multipole_pts[j].if_dip = true;
+                counter++;
+                break;
+            }
+        }
+        efp_stream_next_line(stream);
+    }
+
+/*
 	for (size_t i = 0; i < frag->n_multipole_pts; i++) {
 		if (!skip_label(stream) ||
 		    !tok_double(stream, &frag->multipole_pts[i].dipole.x) ||
@@ -230,7 +297,7 @@ parse_dipoles(struct frag *frag, struct stream *stream)
         }
 		efp_stream_next_line(stream);
 	}
-
+*/
 	if (!tok_stop(stream)){
         efp_log("parse_dipoles() failure");
         return EFP_RESULT_SYNTAX_ERROR;
@@ -249,7 +316,41 @@ parse_quadrupoles(struct frag *frag, struct stream *stream)
 
 	efp_stream_next_line(stream);
 
-	for (size_t i = 0; i < frag->n_multipole_pts; i++) {
+    int counter = 0;
+    for (size_t i = 0; i < frag->n_multipole_pts; i++) {
+
+        if (tok_stop(stream)) {
+            printf(" Found %d quadrupoles of %d expected in fragment %s \n",
+                   counter, frag->n_multipole_pts, frag->name);
+            return EFP_RESULT_SUCCESS;
+        }
+        struct multipole_pt tmp_pt;
+        memset(&tmp_pt, 0, sizeof(tmp_pt));
+        if (!tok_label(stream, sizeof(tmp_pt.label), tmp_pt.label) ||
+            !tok_double(stream, &tmp_pt.quadrupole[0]) ||
+            !tok_double(stream, &tmp_pt.quadrupole[1]) ||
+            !tok_double(stream, &tmp_pt.quadrupole[2]) ||
+            !tok_double(stream, &tmp_pt.quadrupole[3]) ||
+            !tok_double(stream, &tmp_pt.quadrupole[4]) ||
+            !tok_double(stream, &tmp_pt.quadrupole[5]) ){
+            efp_log("parse_quadrupoles() failure");
+            return EFP_RESULT_SYNTAX_ERROR;
+        }
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            if (!strcmp(tmp_pt.label, frag->multipole_pts[j].label)) {
+                // found a match
+                for (int q=0; q<6; q++) {
+                    frag->multipole_pts[j].quadrupole[q] = tmp_pt.quadrupole[q];
+                }
+                frag->multipole_pts[j].if_quad = true;
+                counter++;
+                break;
+            }
+        }
+        efp_stream_next_line(stream);
+    }
+/*
+    for (size_t i = 0; i < frag->n_multipole_pts; i++) {
 		if (!skip_label(stream)){
             efp_log("quadrupoles() failure");
             return EFP_RESULT_SYNTAX_ERROR;
@@ -265,7 +366,7 @@ parse_quadrupoles(struct frag *frag, struct stream *stream)
 
 		efp_stream_next_line(stream);
 	}
-
+*/
 	if (!tok_stop(stream)){
         efp_log("quadrupoles() failure");
         return EFP_RESULT_SYNTAX_ERROR;
@@ -284,6 +385,42 @@ parse_octupoles(struct frag *frag, struct stream *stream)
 
 	efp_stream_next_line(stream);
 
+    int counter = 0;
+    for (size_t i = 0; i < frag->n_multipole_pts; i++) {
+
+        if (tok_stop(stream)) {
+            printf(" Found %d octupoles of %d expected in fragment %s \n",
+                   counter, frag->n_multipole_pts, frag->name);
+            return EFP_RESULT_SUCCESS;
+        }
+        struct multipole_pt tmp_pt;
+        memset(&tmp_pt, 0, sizeof(tmp_pt));
+
+        if (!tok_label(stream, sizeof(tmp_pt.label), tmp_pt.label)){
+            efp_log("parse_octupoles() failure");
+            return EFP_RESULT_SYNTAX_ERROR;
+        }
+
+        for (size_t k = 0; k < 10; k++)
+            if (!tok_double(stream, &tmp_pt.octupole[k])){
+                efp_log("parse_octupoles() failure");
+                return EFP_RESULT_SYNTAX_ERROR;
+            }
+
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            if (!strcmp(tmp_pt.label, frag->multipole_pts[j].label)) {
+                // found a match
+                for (int q=0; q<10; q++) {
+                    frag->multipole_pts[j].octupole[q] = tmp_pt.octupole[q];
+                }
+                frag->multipole_pts[j].if_oct = true;
+                counter++;
+                break;
+            }
+        }
+        efp_stream_next_line(stream);
+    }
+/*
 	for (size_t i = 0; i < frag->n_multipole_pts; i++) {
 		if (!skip_label(stream)){
             efp_log("parse_octupoles() failure");
@@ -300,7 +437,7 @@ parse_octupoles(struct frag *frag, struct stream *stream)
 
 		efp_stream_next_line(stream);
 	}
-
+*/
 	if (!tok_stop(stream)){
         efp_log("parse_octupoles() failure");
         return EFP_RESULT_SYNTAX_ERROR;
@@ -935,7 +1072,6 @@ parse_dipquad_polarizable_pts(struct frag *frag, struct stream *stream)
             efp_stream_next_line(stream);
         }
     }
-    printf("\n in dipquad 10");
     if (!tok_stop(stream)){
         efp_log("parse_dipquad_polarizable_pts() failure");
         return EFP_RESULT_SYNTAX_ERROR;
@@ -944,6 +1080,7 @@ parse_dipquad_polarizable_pts(struct frag *frag, struct stream *stream)
     return EFP_RESULT_SUCCESS;
 }
 
+/*
 static enum efp_result
 parse_screen(struct frag *frag, struct stream *stream)
 {
@@ -990,6 +1127,76 @@ parse_screen(struct frag *frag, struct stream *stream)
 	efp_log("unsupported screen group in EFP data file");
 	free(scr);
 	return EFP_RESULT_SUCCESS;
+}
+*/
+
+static enum efp_result
+parse_screen(struct frag *frag, struct stream *stream)
+{
+    if (!frag->multipole_pts){
+        efp_log("parse_screen() failure: no multipole_pts");
+        return EFP_RESULT_SYNTAX_ERROR;
+    }
+
+    char type;
+    int screen_type = -1;
+    type = efp_stream_get_char(stream);
+    if (type == '\0' || isspace(type)) {
+        screen_type = 0;
+    }
+    else if (type == '2') {
+        screen_type = 2;
+    }
+    else {
+        printf(" Unknown SCREEN type found for fragment %s \n", frag->name);
+    }
+
+    efp_stream_next_line(stream);
+
+    int counter = 0;
+    for (size_t i = 0; i < frag->n_multipole_pts; i++) {
+
+        if (tok_stop(stream)) {
+            printf(" Found %d SCREEN_ parameters, %d expected in fragment %s \n",
+                   counter, frag->n_multipole_pts, frag->name);
+            return EFP_RESULT_SUCCESS;
+        }
+        struct multipole_pt tmp_pt;
+        memset(&tmp_pt, 0, sizeof(tmp_pt));
+        double tmp_screen;
+        if (!tok_label(stream, sizeof(tmp_pt.label), tmp_pt.label) ||
+            !tok_double(stream, NULL) ||
+            !tok_double(stream, &tmp_screen)){
+            efp_log("parse_screen() failure");
+            return EFP_RESULT_SYNTAX_ERROR;
+        }
+
+        for (size_t j = 0; j < frag->n_multipole_pts; j++) {
+            if (!strcmp(tmp_pt.label, frag->multipole_pts[j].label)) {
+                // found a match
+                if (screen_type == 2) {
+                    frag->multipole_pts[j].screen2 = tmp_screen;
+                    frag->multipole_pts[j].if_scr2 = true;
+                    //printf(" SCREEN2 param %lf \n", frag->multipole_pts[j].screen2);
+                }
+                if (screen_type == 0) {
+                    frag->multipole_pts[j].screen0 = tmp_screen;
+                    frag->multipole_pts[j].if_scr0 = true;
+                    //printf(" SCREEN0 param %lf \n", frag->multipole_pts[j].screen0);
+                }
+                counter++;
+                break;
+            }
+        }
+        efp_stream_next_line(stream);
+    }
+
+    if (!tok_stop(stream)){
+        efp_log("parse_screen() failure");
+        return EFP_RESULT_SYNTAX_ERROR;
+    }
+
+    return EFP_RESULT_SUCCESS;
 }
 
 static enum efp_result
@@ -1069,7 +1276,7 @@ get_parse_fn(struct stream *stream)
 		{ "CTVEC",                      skip_ctvec                    },
 		{ "CTFOK",                      skip_ctfok                    },
         { "DIPOLE-QUADRUPOLE DYNAMIC POLARIZABLE POINTS", parse_dipquad_polarizable_pts},
-		{ "SCREEN",                     parse_screen                  },
+        { "SCREEN",                     parse_screen                  },
 		{ "XRFIT",                      parse_xrfit                   },
 		{ "POLAB",                      parse_polab                   },
 	};
@@ -1184,3 +1391,5 @@ efp_add_potential(struct efp *efp, const char *path)
 
 	return res;
 }
+
+

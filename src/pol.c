@@ -81,34 +81,40 @@ get_multipole_field(const vec_t *xyz, const struct multipole_pt *mult_pt,
 	double r7 = r5 * r * r;
 
 	/* charge */
-	field.x += swf->swf * mult_pt->monopole * dr.x / r3;
-	field.y += swf->swf * mult_pt->monopole * dr.y / r3;
-	field.z += swf->swf * mult_pt->monopole * dr.z / r3;
+	if (mult_pt->if_mon || mult_pt->if_dip) {
+        field.x += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.x / r3;
+        field.y += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.y / r3;
+        field.z += swf->swf * (mult_pt->monopole + mult_pt->znuc) * dr.z / r3;
+    }
 
 	/* dipole */
-	t1 = vec_dot(&mult_pt->dipole, &dr);
+	if (mult_pt->if_dip) {
+        t1 = vec_dot(&mult_pt->dipole, &dr);
 
-	field.x += swf->swf * (3.0 / r5 * t1 * dr.x - mult_pt->dipole.x / r3);
-	field.y += swf->swf * (3.0 / r5 * t1 * dr.y - mult_pt->dipole.y / r3);
-	field.z += swf->swf * (3.0 / r5 * t1 * dr.z - mult_pt->dipole.z / r3);
+        field.x += swf->swf * (3.0 / r5 * t1 * dr.x - mult_pt->dipole.x / r3);
+        field.y += swf->swf * (3.0 / r5 * t1 * dr.y - mult_pt->dipole.y / r3);
+        field.z += swf->swf * (3.0 / r5 * t1 * dr.z - mult_pt->dipole.z / r3);
+    }
 
 	/* quadrupole */
-	t1 = quadrupole_sum(mult_pt->quadrupole, &dr);
+    if (mult_pt->if_quad) {
+        t1 = quadrupole_sum(mult_pt->quadrupole, &dr);
 
-	t2 = mult_pt->quadrupole[quad_idx(0, 0)] * dr.x +
-	     mult_pt->quadrupole[quad_idx(1, 0)] * dr.y +
-	     mult_pt->quadrupole[quad_idx(2, 0)] * dr.z;
-	field.x += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.x);
+        t2 = mult_pt->quadrupole[quad_idx(0, 0)] * dr.x +
+             mult_pt->quadrupole[quad_idx(1, 0)] * dr.y +
+             mult_pt->quadrupole[quad_idx(2, 0)] * dr.z;
+        field.x += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.x);
 
-	t2 = mult_pt->quadrupole[quad_idx(0, 1)] * dr.x +
-	     mult_pt->quadrupole[quad_idx(1, 1)] * dr.y +
-	     mult_pt->quadrupole[quad_idx(2, 1)] * dr.z;
-	field.y += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.y);
+        t2 = mult_pt->quadrupole[quad_idx(0, 1)] * dr.x +
+             mult_pt->quadrupole[quad_idx(1, 1)] * dr.y +
+             mult_pt->quadrupole[quad_idx(2, 1)] * dr.z;
+        field.y += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.y);
 
-	t2 = mult_pt->quadrupole[quad_idx(0, 2)] * dr.x +
-	     mult_pt->quadrupole[quad_idx(1, 2)] * dr.y +
-	     mult_pt->quadrupole[quad_idx(2, 2)] * dr.z;
-	field.z += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.z);
+        t2 = mult_pt->quadrupole[quad_idx(0, 2)] * dr.x +
+             mult_pt->quadrupole[quad_idx(1, 2)] * dr.y +
+             mult_pt->quadrupole[quad_idx(2, 2)] * dr.z;
+        field.z += swf->swf * (-2.0 / r5 * t2 + 5.0 / r7 * t1 * dr.z);
+    }
 
 	/* octupole-polarizability interactions are ignored */
 
@@ -133,16 +139,20 @@ get_multipole_elec_potential(const vec_t *xyz, const struct multipole_pt *mult_p
     double r7 = r5 * r * r;
 
     /* charge */
-    elpot += swf->swf * mult_pt->monopole / r;
+    if (mult_pt->if_mon || mult_pt->if_dip)
+        elpot += swf->swf * (mult_pt->monopole + mult_pt->znuc) / r;
 
     /* dipole */
-    elpot += swf->swf * vec_dot(&mult_pt->dipole, &dr) / r3;
+    if (mult_pt->if_dip)
+        elpot += swf->swf * vec_dot(&mult_pt->dipole, &dr) / r3;
 
     /* quadrupole */
-    elpot += swf->swf * quadrupole_sum(mult_pt->quadrupole, &dr) / r5;
+    if (mult_pt->if_quad)
+        elpot += swf->swf * quadrupole_sum(mult_pt->quadrupole, &dr) / r5;
 
     /* octupole */
-    elpot += swf->swf * octupole_sum(mult_pt->octupole, &dr) / r7;
+    if (mult_pt->if_oct)
+        elpot += swf->swf * octupole_sum(mult_pt->octupole, &dr) / r7;
 
     return elpot;
 }
@@ -164,29 +174,6 @@ get_elec_field(const struct efp *efp, size_t frag_idx, size_t pt_idx)
 		struct swf swf = efp_make_swf(efp, fr_i, fr_j, 0);
 		if (swf.swf == 0.0)
 		    continue;
-
-		/* field due to nuclei */
-		for (size_t j = 0; j < fr_i->n_atoms; j++) {
-			const struct efp_atom *at = fr_i->atoms + j;
-
-			vec_t dr = {
-				pt->x - at->x - swf.cell.x,
-				pt->y - at->y - swf.cell.y,
-				pt->z - at->z - swf.cell.z
-			};
-
-			double r = vec_len(&dr);
-			double r3 = r * r * r;
-			double p1 = 1.0;
-
-			if (efp->opts.pol_damp == EFP_POL_DAMP_TT) {
-				p1 = efp_get_pol_damp_tt(r, fr_i->pol_damp,
-				    fr_j->pol_damp);
-			}
-			elec_field.x += swf.swf * at->znuc * dr.x / r3 * p1;
-			elec_field.y += swf.swf * at->znuc * dr.y / r3 * p1;
-			elec_field.z += swf.swf * at->znuc * dr.z / r3 * p1;
-		}
 
 		/* field due to multipoles */
 		for (size_t j = 0; j < fr_i->n_multipole_pts; j++) {
@@ -231,9 +218,10 @@ get_elec_field(const struct efp *efp, size_t frag_idx, size_t pt_idx)
 	return elec_field;
 }
 
-/* this function computes electric field on a polarizable point pt_idx of fragment frag_idx due to other fragment ligand_idx */
+/* this function computes electric field on a polarizable point pt_idx
+ * of fragment frag_idx due to other fragment ligand_idx */
 static vec_t
-get_ligand_field(const struct efp *efp, size_t frag_idx, size_t pt_idx, size_t ligand_idx)
+get_ligand_field(const struct efp *efp, size_t frag_idx, size_t pt_idx, int ligand_idx)
 {
 	const struct frag *fr_j = efp->frags + frag_idx;
 	const struct polarizable_pt *pt = fr_j->polarizable_pts + pt_idx;
@@ -248,29 +236,6 @@ get_ligand_field(const struct efp *efp, size_t frag_idx, size_t pt_idx, size_t l
         struct swf swf = efp_make_swf(efp, fr_i, fr_j, 0);
         if (swf.swf == 0)
             return elec_field;
-
-        /* field due to nuclei */
-        for (size_t j = 0; j < fr_i->n_atoms; j++) {
-            const struct efp_atom *at = fr_i->atoms + j;
-
-            vec_t dr = {
-                    pt->x - at->x - swf.cell.x,
-                    pt->y - at->y - swf.cell.y,
-                    pt->z - at->z - swf.cell.z
-            };
-
-            double r = vec_len(&dr);
-            double r3 = r * r * r;
-            double p1 = 1.0;
-
-            if (efp->opts.pol_damp == EFP_POL_DAMP_TT) {
-                p1 = efp_get_pol_damp_tt(r, fr_i->pol_damp,
-                                         fr_j->pol_damp);
-            }
-            elec_field.x += swf.swf * at->znuc * dr.x / r3 * p1;
-            elec_field.y += swf.swf * at->znuc * dr.y / r3 * p1;
-            elec_field.z += swf.swf * at->znuc * dr.z / r3 * p1;
-        }
 
         /* field due to multipoles */
         for (size_t j = 0; j < fr_i->n_multipole_pts; j++) {
@@ -360,17 +325,19 @@ error:
 static void
 compute_elec_field_range(struct efp *efp, size_t from, size_t to, void *data)
 {
-	vec_t *elec_field = (vec_t *)data;
+    (void)data;
 
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
 	for (size_t i = from; i < to; i++) {
-		const struct frag *frag = efp->frags + i;
+        // const struct frag *frag = efp->frags + i;
+		struct frag *frag = efp->frags + i;
 
 		for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
-			elec_field[frag->polarizable_offset + j] =
-			    get_elec_field(efp, i, j);
+		    struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            pt->elec_field = get_elec_field(efp, i, j);
 		}
 	}
 }
@@ -378,36 +345,37 @@ compute_elec_field_range(struct efp *efp, size_t from, size_t to, void *data)
 static void
 compute_ligand_field_range(struct efp *efp, size_t from, size_t to, void *data)
 {
-	vec_t *elec_field = (vec_t *)data;
+    (void)data;
 
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
 	for (size_t i = from; i < to; i++) {
-		const struct frag *frag = efp->frags + i;
+		struct frag *frag = efp->frags + i;
 
 		for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
-			elec_field[frag->polarizable_offset + j] =
-			    get_ligand_field(efp, i, j, efp->opts.ligand);
-		}
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+            pt->ligand_field = get_ligand_field(efp, i, j, efp->opts.ligand);
+        }
 	}
 }
 
 static void
 compute_fragment_field_range(struct efp *efp, size_t from, size_t to, void *data)
 {
-	vec_t *elec_field = (vec_t *)data;
-	struct frag *ligand = efp->frags + efp->opts.ligand;
+    (void)data;
+
+    struct ligand *ligand = efp->ligand;
 
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
 	for (size_t i = from; i < to; i++) {
-		const struct frag *frag = efp->frags + i;
+		struct frag *frag = efp->frags + i;
 
-		for (size_t j = 0; j < ligand->n_polarizable_pts; j++) {
-			elec_field[frag->fragment_field_offset + j] =
-			    get_ligand_field(efp, efp->opts.ligand, j, i);
+		for (size_t j = 0; j < ligand->n_ligand_pts; j++) {
+            struct ligand_pt *pt = ligand->ligand_pts + j;
+			pt->fragment_field[i] = get_ligand_field(efp, efp->ligand_index, j, i);
 		}
 	}
 }
@@ -415,63 +383,36 @@ compute_fragment_field_range(struct efp *efp, size_t from, size_t to, void *data
 static enum efp_result
 compute_elec_field(struct efp *efp)
 {
-	vec_t *elec_field;
-	vec_t *ligand_field;
-	vec_t *fragment_field;
     int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand != -1) ? 1 : 0;
     enum efp_result res;
 
-	elec_field = (vec_t *)calloc(efp->n_polarizable_pts, sizeof(vec_t));
-	efp_balance_work(efp, compute_elec_field_range, elec_field);
-	efp_allreduce((double *)elec_field, 3 * efp->n_polarizable_pts);
+    efp_balance_work(efp, compute_elec_field_range, NULL);
 
+	// WARNING!!! Should it be if(efp->opts.enable_pairwise) instead ???
 	if (do_pairwise) {
 		// this is field due to ligand on a fragment point
-		ligand_field = (vec_t *)calloc(efp->n_polarizable_pts, sizeof(vec_t));
-		efp_balance_work(efp, compute_ligand_field_range, ligand_field);
-		efp_allreduce((double *)ligand_field, 3 * efp->n_polarizable_pts);
+		efp_balance_work(efp, compute_ligand_field_range, NULL);
         if (efp->opts.ligand != -1) {
             // this is field due to fragment(s) on ligand points
-            fragment_field = (vec_t *) calloc(efp->n_fragment_field_pts, sizeof(vec_t));
-            efp_balance_work(efp, compute_fragment_field_range, fragment_field);
-            efp_allreduce((double *) fragment_field, 3 * efp->n_fragment_field_pts);
+            efp_balance_work(efp, compute_fragment_field_range, NULL);
         }
 	}
-    struct frag *ligand;
-    if (do_pairwise && efp->opts.ligand != -1) ligand = efp->frags + efp->opts.ligand;
+
+	// IS THIS OPENMP NEEDED HERE???
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
-	for (size_t i = 0; i < efp->n_frag; i++) {
-		struct frag *frag = efp->frags + i;
+    for (size_t i = 0; i < efp->n_frag; i++) {
+        struct frag *frag = efp->frags + i;
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            frag->polarizable_pts[j].elec_field_wf = vec_zero;
+        }
+    }
 
-		for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
-			frag->polarizable_pts[j].elec_field =
-			    elec_field[frag->polarizable_offset + j];
-			frag->polarizable_pts[j].elec_field_wf = vec_zero;
-			if (do_pairwise) {
-				frag->polarizable_pts[j].ligand_field =
-						ligand_field[frag->polarizable_offset + j];
-			}
-		}
-		if (do_pairwise && i!= efp->opts.ligand && efp->opts.ligand != -1) {
-			for (size_t lp = 0; lp < ligand->n_polarizable_pts; lp++) {
-				efp->fragment_field[frag->fragment_field_offset + lp] =
-						fragment_field[frag->fragment_field_offset + lp];
-			}
-		}
-
-	}
-	free(elec_field);
-	if (do_pairwise) {
-		free(ligand_field);
-        if (efp->opts.ligand != -1)
-    		free(fragment_field);
-	}
-
-	if (efp->opts.terms & EFP_TERM_AI_POL)
-		if ((res = add_electron_density_field(efp)))
-			return res;
+	if (efp->opts.terms & EFP_TERM_AI_POL) {
+        if ((res = add_electron_density_field(efp)))
+            return res;
+    }
 
 	return EFP_RESULT_SUCCESS;
 }
@@ -479,7 +420,7 @@ compute_elec_field(struct efp *efp)
 static enum efp_result
 compute_elec_field_crystal(struct efp *efp)
 {
-    int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand != -1) ? 1 : 0;
+    int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand > -1) ? 1 : 0;
     enum efp_result res;
 
     int nsymm = efp->nsymm_frag;
@@ -491,30 +432,26 @@ compute_elec_field_crystal(struct efp *efp)
         struct frag *frag = efp->frags + unique_frag[i];
 
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
-            //elec_field[frag->polarizable_offset + j] = get_elec_field(efp, i, j);
             frag->polarizable_pts[j].elec_field = get_elec_field(efp, unique_frag[i], j);
             frag->polarizable_pts[j].elec_field_wf = vec_zero;
         }
     }
 
-    // slow and painful
     if (do_pairwise) {
-
-        struct frag *ligand;
-        ligand = efp->frags + efp->opts.ligand;
+        struct ligand *ligand = efp->ligand;
 
         for (size_t i = 0; i < efp->n_frag; i++) {
-            if (i != efp->opts.ligand) {
+            if (i != efp->ligand_index) {
                 // field on ligand due to other fragments "i"
                 struct frag *frag = efp->frags + i;
-                for (size_t lp = 0; lp < ligand->n_polarizable_pts; lp++) {
-                    efp->fragment_field[frag->fragment_field_offset + lp] =
-                            get_ligand_field(efp, efp->opts.ligand, lp, i);
+                for (size_t lp = 0; lp < ligand->n_ligand_pts; lp++) {
+                    struct ligand_pt *pt = ligand->ligand_pts + lp;
+                    pt->fragment_field[i] = get_ligand_field(efp, efp->ligand_index, lp, i);
                 }
                 // field on fragments "i" due to ligand
                 for (size_t p = 0; p < frag->n_polarizable_pts; p++) {
                     frag->polarizable_pts[p].ligand_field =
-                            get_ligand_field(efp, i, p, efp->opts.ligand);
+                            get_ligand_field(efp, i, p, efp->ligand_index);
                 }
             }
         }
@@ -548,7 +485,6 @@ get_induced_dipole_field(struct efp *efp, size_t frag_idx,
 
 		for (size_t jj = 0; jj < fr_j->n_polarizable_pts; jj++) {
 			struct polarizable_pt *pt_j = fr_j->polarizable_pts+jj;
-			size_t idx = fr_j->polarizable_offset+jj;
 
 			vec_t dr = {
 				pt->x - pt_j->x + swf.cell.x,
@@ -560,8 +496,8 @@ get_induced_dipole_field(struct efp *efp, size_t frag_idx,
 			double r3 = r * r * r;
 			double r5 = r3 * r * r;
 
-			double t1 = vec_dot(&efp->indip[idx], &dr);
-			double t2 = vec_dot(&efp->indipconj[idx], &dr);
+            double t1 = vec_dot(&pt_j->indip, &dr);
+            double t2 = vec_dot(&pt_j->indipconj, &dr);
 
 			double p1 = 1.0;
 
@@ -569,32 +505,78 @@ get_induced_dipole_field(struct efp *efp, size_t frag_idx,
 				p1 = efp_get_pol_damp_tt(r, fr_i->pol_damp,
 				    fr_j->pol_damp);
 			}
-			field->x -= swf.swf * p1 * (efp->indip[idx].x / r3 -
+			field->x -= swf.swf * p1 * (pt_j->indip.x / r3 -
 			    3.0 * t1 * dr.x / r5);
-			field->y -= swf.swf * p1 * (efp->indip[idx].y / r3 -
+			field->y -= swf.swf * p1 * (pt_j->indip.y / r3 -
 			    3.0 * t1 * dr.y / r5);
-			field->z -= swf.swf * p1 * (efp->indip[idx].z / r3 -
+			field->z -= swf.swf * p1 * (pt_j->indip.z / r3 -
 			    3.0 * t1 * dr.z / r5);
 
 			field_conj->x -= swf.swf * p1 *
-			    (efp->indipconj[idx].x / r3 - 3.0 * t2 * dr.x / r5);
+			    (pt_j->indipconj.x / r3 - 3.0 * t2 * dr.x / r5);
 			field_conj->y -= swf.swf * p1 *
-			    (efp->indipconj[idx].y / r3 - 3.0 * t2 * dr.y / r5);
+			    (pt_j->indipconj.y / r3 - 3.0 * t2 * dr.y / r5);
 			field_conj->z -= swf.swf * p1 *
-			    (efp->indipconj[idx].z / r3 - 3.0 * t2 * dr.z / r5);
-		}
+			    (pt_j->indipconj.z / r3 - 3.0 * t2 * dr.z / r5);
+        }
 	}
 }
 
+static bool
+if_clean_indip(struct efp *efp, int counter) {
+    return (counter == 0);
+}
+
+static bool
+if_clean_field(struct efp *efp, int counter) {
+    return (counter == 0);
+}
+
+static void
+zero_ind_dipoles(struct efp *efp, size_t from, size_t to, void *data)
+{
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for (size_t i = from; i < to; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            pt->indip = vec_zero;
+            pt->indipconj = vec_zero;
+            pt->indip_old = vec_zero;
+            pt->indipconj_old = vec_zero;
+        }
+    }
+}
+
+static void
+zero_static_field(struct efp *efp, size_t from, size_t to, void *data)
+{
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for (size_t i = from; i < to; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            pt->elec_field = vec_zero;
+            pt->ligand_field = vec_zero;
+            pt->elec_field_wf = vec_zero;
+        }
+    }
+}
 
 static void
 compute_id_range(struct efp *efp, size_t from, size_t to, void *data)
 {
 	double conv = 0.0;
-	vec_t *id_new, *id_conj_new;
-
-	id_new = ((struct id_work_data *)data)->id_new;
-	id_conj_new = ((struct id_work_data *)data)->id_conj_new;
 
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic) reduction(+:conv)
@@ -604,7 +586,6 @@ compute_id_range(struct efp *efp, size_t from, size_t to, void *data)
 
 		for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
 			struct polarizable_pt *pt = frag->polarizable_pts + j;
-			size_t idx = frag->polarizable_offset + j;
 			vec_t field, field_conj;
 
 			/* electric field from other induced dipoles */
@@ -620,18 +601,18 @@ compute_id_range(struct efp *efp, size_t from, size_t to, void *data)
 			field_conj.y += pt->elec_field.y + pt->elec_field_wf.y;
 			field_conj.z += pt->elec_field.z + pt->elec_field_wf.z;
 
-			id_new[idx] = mat_vec(&pt->tensor, &field);
-			id_conj_new[idx] = mat_trans_vec(&pt->tensor,
-			    &field_conj);
+			memcpy(&pt->indip_old, &pt->indip, sizeof(vec_t));
+            memcpy(&pt->indipconj_old, &pt->indipconj, sizeof(vec_t));
 
-			conv += vec_dist(&id_new[idx], &efp->indip[idx]);
-			conv += vec_dist(&id_conj_new[idx],
-			    &efp->indipconj[idx]);
+            pt->indip = mat_vec(&pt->tensor, &field);
+            pt->indipconj = mat_trans_vec(&pt->tensor, &field_conj);
+
+            conv += vec_dist(&pt->indip, &pt->indip_old);
+            conv += vec_dist(&pt->indipconj, &pt->indipconj_old);
 		}
 	}
 
-	((struct id_work_data *)data)->conv += conv;
-
+    *(double *)data += conv;
 }
 
 static void
@@ -639,10 +620,6 @@ compute_id_crystal(struct efp *efp, void *data)
 {
     // This is not parallelized!!!
     double conv = 0.0;
-    vec_t *id_new, *id_conj_new;
-
-    id_new = ((struct id_work_data *)data)->id_new;
-    id_conj_new = ((struct id_work_data *)data)->id_conj_new;
 
     int nsymm = efp->nsymm_frag;
     size_t *unique_frag = (size_t *)calloc(nsymm, sizeof(size_t));
@@ -657,7 +634,6 @@ compute_id_crystal(struct efp *efp, void *data)
 
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
             struct polarizable_pt *pt = frag->polarizable_pts + j;
-            size_t idx = frag->polarizable_offset + j;
             vec_t field, field_conj;
 
             /* electric field from other induced dipoles */
@@ -672,38 +648,28 @@ compute_id_crystal(struct efp *efp, void *data)
             field_conj.y += pt->elec_field.y + pt->elec_field_wf.y;
             field_conj.z += pt->elec_field.z + pt->elec_field_wf.z;
 
-            id_new[idx] = mat_vec(&pt->tensor, &field);
-            id_conj_new[idx] = mat_trans_vec(&pt->tensor,
-                                             &field_conj);
+            memcpy(&pt->indip_old, &pt->indip, sizeof(vec_t));
+            memcpy(&pt->indipconj_old, &pt->indipconj, sizeof(vec_t));
 
-            conv += nsymm_frag[i]*vec_dist(&id_new[idx], &efp->indip[idx]);
-            conv += nsymm_frag[i]*vec_dist(&id_conj_new[idx], &efp->indipconj[idx]);
+            pt->indip = mat_vec(&pt->tensor, &field);
+            pt->indipconj = mat_trans_vec(&pt->tensor, &field_conj);
+
+            conv += nsymm_frag[i]*vec_dist(&pt->indip, &pt->indip_old);
+            conv += nsymm_frag[i]*vec_dist(&pt->indipconj, &pt->indipconj_old);
         }
     }
-    ((struct id_work_data *)data)->conv += conv;
+    *(double *)data += conv;
 
-    // step 2: copy computed induced dipoles to fragment info
-    for (int i = 0; i < nsymm; i++) {
-        struct frag *frag = efp->frags + unique_frag[i];
-
-        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
-            size_t idx = frag->polarizable_offset + j;
-
-            efp->indip[idx] = id_new[idx];
-            efp->indipconj[idx] = id_conj_new[idx];
-        }
-    }
-
-    // step 3: broadcast induced dipoles to symmetry-identical fragments
+    // step 2: broadcast induced dipoles to symmetry-identical fragments
     for (int j=0; j<nsymm; j++){
-        //printf("\n unique_frag %d", unique_frag[j]);
+        // printf("\n unique_frag %d", unique_frag[j]);
         struct frag *symmfrag = efp->frags + unique_frag[j];
-        size_t poloff_s = symmfrag->polarizable_offset;
         for (size_t i=0; i<efp->n_frag; i++){
             if (i == unique_frag[j]) // do nothing for self
                 continue;
+
             // found same-symmetry fragment, copy induced dipoles
-            //printf("\n symm i %d, symm j %d", efp->symmlist[i], efp->symmlist[unique_frag[j]]);
+            // printf("\n symm i %d, symm j %d", efp->symmlist[i], efp->symmlist[unique_frag[j]]);
             if (efp->symmlist[i] == efp->symmlist[unique_frag[j]]){
                 struct frag *frag = efp->frags + i;
                 // compute rotation matrix between two fragments
@@ -712,89 +678,64 @@ compute_id_crystal(struct efp *efp, void *data)
                 //printf("\n rotmat: %lf, %lf, %lf ", rotmat.xy, rotmat.xz, rotmat.yz);
 
                 for (size_t p=0; p<frag->n_polarizable_pts; p++) {
-                    size_t poloff_i = frag->polarizable_offset;
-
+                    struct polarizable_pt *pt_symm = symmfrag->polarizable_pts + p;
+                    struct polarizable_pt *pt = frag->polarizable_pts + p;
                     // rotate induced dipole and copy
-                    efp->indip[poloff_i+p] = mat_vec(&rotmat, &efp->indip[poloff_s+p]);
-                    efp->indipconj[poloff_i+p] = mat_vec(&rotmat, &efp->indipconj[poloff_s+p]);
+                    pt->indip = mat_vec(&rotmat, &pt_symm->indip);
+                    pt->indipconj = mat_vec(&rotmat, &pt_symm->indipconj);
                 }
             }
         }
     }
-
-    /*
-    printf("\n induced dipoles");
-    for (int i=0; i<efp->n_polarizable_pts; i++) {
-        printf("\npoint %d: %lf ", i, vec_len(&efp->indip[i]));
-    }
-    */
 }
 
 static double
 pol_scf_iter(struct efp *efp)
 {
-	struct id_work_data data;
 	size_t npts = efp->n_polarizable_pts;
-
-	data.conv = 0.0;
-	data.id_new = (vec_t *)calloc(npts, sizeof(vec_t));
-	data.id_conj_new = (vec_t *)calloc(npts, sizeof(vec_t));
+	double conv = 0.0;
 
 	if (efp->opts.symmetry == 0) { // original case
-        efp_balance_work(efp, compute_id_range, &data);
-
-        efp_allreduce((double *) data.id_new, 3 * npts);
-        efp_allreduce((double *) data.id_conj_new, 3 * npts);
-        efp_allreduce(&data.conv, 1);
-
-        memcpy(efp->indip, data.id_new, npts * sizeof(vec_t));
-        memcpy(efp->indipconj, data.id_conj_new, npts * sizeof(vec_t));
+        efp_balance_work(efp, compute_id_range, &conv);
+        efp_allreduce(&conv, 1);
     }
 	else {   // crystal symmetry
-	    compute_id_crystal(efp, &data);
+        compute_id_crystal(efp, &conv);
 	}
-	free(data.id_new);
-	free(data.id_conj_new);
 
-
-	for (size_t i=0; i<efp->n_frag; i++) {
-        struct frag *frag = efp->frags + i;
-        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
-            struct polarizable_pt *pt = frag->polarizable_pts + j;
-            size_t idx = frag->polarizable_offset + j;
-            if (vec_len(&efp->indip[idx]) > INDIP_PRINT_TRESH) {
-                printf("\n WARNING: induced dipole %d on fragment %d: %lf ", j, i, vec_len(&efp->indip[idx]));
+	// printing out information on convergence
+	if (efp->opts.print > 0)
+        printf(" IND DIPOLES NORM: %lf \n", conv / npts / 2);
+	if (efp->opts.print > 1) {
+        for (size_t i = 0; i < efp->n_frag; i++) {
+            struct frag *frag = efp->frags + i;
+            for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+                struct polarizable_pt *pt = frag->polarizable_pts + j;
+                if (vec_len(&pt->indip) > INDIP_PRINT_TRESH) {
+                    printf("\n WARNING: induced dipole %d on fragment %d: %lf ", j, i, vec_len(&pt->indip));
+                }
             }
         }
-	}
-	/*
-	for (int i=0; i<efp->n_polarizable_pts; i++) {
-	    if vec_len(&efp->indip[i]) > INDIP_PRINT_TRESH {
-            printf("\npoint %d: %lf ", i, vec_len(&efp->indip[i]));
-	    };
-	}
-	*/
+    }
 
-	return data.conv / npts / 2;
+    return conv / npts / 2;
 }
 
 static void
 compute_energy_range(struct efp *efp, size_t from, size_t to, void *data)
 {
 	double energy = 0.0;
-    double energy1 = 0.0;
-    double energy2 = 0.0;
-    int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand != -1) ? 1 : 0;
+    // double energy1 = 0.0;
+    // double energy2 = 0.0;
+    int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand > -1) ? 1 : 0;
 
-    struct frag *ligand;
-	if (do_pairwise) {
-        ligand = efp->frags + efp->opts.ligand;
-	}
+    struct ligand *ligand;
+	if (do_pairwise)
+        ligand = efp->ligand;
 
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic) reduction(+:energy)
 #endif
-
     for (size_t i = from; i < to; i++) {
         struct frag *frag = efp->frags + i;
         double ene1 = 0.0, ene2 = 0.0;
@@ -802,39 +743,36 @@ compute_energy_range(struct efp *efp, size_t from, size_t to, void *data)
         efp->pair_energies[i].polarization = 0.0;
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
             struct polarizable_pt *pt = frag->polarizable_pts + j;
-            size_t idx = frag->polarizable_offset + j;
 
-            energy += 0.5 * vec_dot(&efp->indipconj[idx],
-                                    &pt->elec_field_wf) -
-                      0.5 * vec_dot(&efp->indip[idx],
-                                    &pt->elec_field);
+            energy += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf) -
+                      0.5 * vec_dot(&pt->indip, &pt->elec_field);
 
-            energy1 += 0.5 * vec_dot(&efp->indipconj[idx],
-                                     &pt->elec_field_wf);
-            energy2 += -0.5 * vec_dot(&efp->indip[idx],
-                                      &pt->elec_field);
+            // energy1 += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
+            // energy2 += -0.5 * vec_dot(&pt->indip, &pt->elec_field);
 
+            //  !!!! WARNING !!! DOES IT WORK FOR QM LIGAND ????
             if (efp->opts.enable_pairwise && i != efp->opts.ligand) {
                 efp->pair_energies[i].polarization +=
-                        - 0.5 * vec_dot(&efp->indip[idx], &pt->ligand_field);
-                ene2 += - 0.5 * vec_dot(&efp->indip[idx], &pt->ligand_field);
+                        - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
+                ene2 += - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
             }
 
             // ligand is a QM region
             if (efp->opts.enable_pairwise && efp->opts.ligand == -1) {
                 efp->pair_energies[i].polarization +=
-                        0.5 * vec_dot(&efp->indipconj[idx], &pt->elec_field_wf);
-                ene1 += 0.5 * vec_dot(&efp->indipconj[idx], &pt->elec_field_wf);
+                        0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
+                // ene1 += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
             }
         }
 
-        if (efp->opts.enable_pairwise &&  i != efp->opts.ligand && efp->opts.ligand != -1) {
-            for (size_t lp = 0; lp < ligand->n_polarizable_pts; lp++) {
-                struct polarizable_pt *lpt = ligand->polarizable_pts + lp;
-                size_t idx = ligand->polarizable_offset + lp;
+        //  !!!! WARNING !!! DOES IT WORK FOR QM LIGAND ????
+        if (do_pairwise &&  i != efp->opts.ligand) {
+            for (size_t lp = 0; lp < ligand->n_ligand_pts; lp++) {
+                struct ligand_pt *lpt = ligand->ligand_pts + lp;
+                struct polarizable_pt *pt = ligand->ligand_frag->polarizable_pts + lp;
 
                 efp->pair_energies[i].polarization +=
-                        - 0.5 * vec_dot(&efp->indip[idx], &efp->fragment_field[frag->fragment_field_offset+lp]);
+                        - 0.5 * vec_dot(&pt->indip, &lpt->fragment_field[i]);
             }
         }
         //printf("\n frag %d, pol pair energy1 = %lf", i, efp->pair_energies[i].polarization);
@@ -858,26 +796,25 @@ compute_energy_correction_range(struct efp *efp, size_t from, size_t to, void *d
         efp->pair_energies[i].exs_polarization = 0.0;
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
             struct polarizable_pt *pt = frag->polarizable_pts + j;
-            size_t idx = frag->polarizable_offset + j;
 
-            energy += 0.5 * vec_dot(&efp->indipconj[idx], &pt->elec_field_wf) -
-                      0.5 * vec_dot(&efp->indip[idx], &pt->elec_field);
+            energy += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf) -
+                      0.5 * vec_dot(&pt->indip, &pt->elec_field);
 
-            vec_t vec1 = vec_sub(&efp->indipconj[idx],&efp->indipconj_old[idx]);
-            vec_t vec2 = vec_sub(&efp->indip[idx], &efp->indip_old[idx]);
+            vec_t vec1 = vec_sub(&pt->indipconj,&pt->indipconj_old);
+            vec_t vec2 = vec_sub(&pt->indip, &pt->indip_old);
             vec_t ddip = vec_add(&vec1, &vec2);
 
             energy -= 0.5 * vec_dot( &ddip, &pt->elec_field_wf);
 
             if (efp->opts.enable_pairwise && i != efp->opts.ligand) {
                 efp->pair_energies[i].exs_polarization +=
-                        - 0.5 * vec_dot(&efp->indip[idx], &pt->ligand_field);
+                        - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
             }
 
             // ligand is a QM region
             if (efp->opts.enable_pairwise && efp->opts.ligand == -1) {
                 efp->pair_energies[i].exs_polarization +=
-                        0.5 * vec_dot(&efp->indipconj[idx], &pt->elec_field_wf);
+                        0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
                 efp->pair_energies[i].exs_polarization -=
                         0.5 * vec_dot(&ddip, &pt->elec_field_wf);
             }
@@ -893,7 +830,7 @@ static void
 compute_energy_crystal(struct efp *efp, double *polenergy)
 {
     double energy = 0.0;
-    int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand != -1) ? 1 : 0;
+    int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand > -1) ? 1 : 0;
 
     int nsymm = efp->nsymm_frag;
     size_t *unique_frag = (size_t *)calloc(nsymm, sizeof(size_t));
@@ -901,6 +838,10 @@ compute_energy_crystal(struct efp *efp, double *polenergy)
 
     size_t *nsymm_frag = (size_t *)calloc(nsymm, sizeof(size_t));
     n_symm_frag(efp, nsymm_frag);
+
+    struct ligand *ligand;
+    if (do_pairwise)
+        ligand = efp->ligand;
 
     for (int k=0; k<nsymm; k++) {
         size_t i = unique_frag[k];
@@ -910,25 +851,24 @@ compute_energy_crystal(struct efp *efp, double *polenergy)
 
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
             struct polarizable_pt *pt = frag->polarizable_pts + j;
-            size_t idx = frag->polarizable_offset + j;
 
-            energy += factor * (0.5 * vec_dot(&efp->indipconj[idx], &pt->elec_field_wf) -
-                                0.5 * vec_dot(&efp->indip[idx], &pt->elec_field));
+            energy += factor * (0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf) -
+                                0.5 * vec_dot(&pt->indip, &pt->elec_field));
 
-            if (do_pairwise && i == efp->opts.ligand) {
+            if (do_pairwise && i == efp->ligand_index) {
                 for (size_t fr = 0; fr < efp->n_frag; fr++) {
                     if (fr == i)
                         continue;
 
                     struct frag *other_frag = efp->frags + fr;
                     efp->pair_energies[fr].polarization +=
-                            -0.5 *
-                            vec_dot(&efp->indip[idx], &efp->fragment_field[other_frag->fragment_field_offset + j]);
+                            -0.5 * vec_dot(&pt->indip, &ligand->ligand_pts[j].fragment_field[fr]);
+                            //vec_dot(&pt->indip, &efp->fragment_field[other_frag->fragment_field_offset + j]);
                 }
             }
         }
 
-        if (do_pairwise && i == efp->opts.ligand) {
+        if (do_pairwise && i == efp->ligand_index) {
             for (size_t fr = 0; fr < efp->n_frag; fr++) {
                 if (fr == i)
                     continue;
@@ -936,10 +876,10 @@ compute_energy_crystal(struct efp *efp, double *polenergy)
                 struct frag *other_frag = efp->frags + fr;
                 for (size_t p = 0; p < other_frag->n_polarizable_pts; p++) {
                     struct polarizable_pt *pt = other_frag->polarizable_pts + p;
-                    size_t idx = other_frag->polarizable_offset + p;
+                    // size_t idx = other_frag->polarizable_offset + p;
 
                     efp->pair_energies[fr].polarization +=
-                            -0.5 * vec_dot(&efp->indip[idx], &pt->ligand_field);
+                            -0.5 * vec_dot(&pt->indip, &pt->ligand_field);
                 }
             }
         }
@@ -950,9 +890,6 @@ compute_energy_crystal(struct efp *efp, double *polenergy)
 static enum efp_result
 efp_compute_id_iterative(struct efp *efp)
 {
-	memset(efp->indip, 0, efp->n_polarizable_pts * sizeof(vec_t));
-	memset(efp->indipconj, 0, efp->n_polarizable_pts * sizeof(vec_t));
-
 	for (size_t iter = 1; iter <= POL_SCF_MAX_ITER; iter++) {
 		if (pol_scf_iter(efp) < POL_SCF_TOL)
 			break;
@@ -969,8 +906,25 @@ efp_compute_pol_energy(struct efp *efp, double *energy)
 
 	assert(energy);
 
-	if ((res = compute_elec_field(efp)))
-		return res;
+	// counter to know when to zero out induced dipoles and static field
+	static int counter = 0;
+
+    // return true (to zero out induced dipoles) only when efp_compute_pol_energy is called
+    // the very first time
+    // do not zero induced dipoles in md, optimization, qm scf iterations etc...
+    if ( if_clean_indip(efp, counter) ) {
+        efp_balance_work(efp, zero_ind_dipoles, NULL);
+    }
+
+    // return true (to zero out static fields
+    // the very first time
+    // think how to skip recomputing static field in qm scf iterations
+    // check on efp->do_gradient breaks gtests...
+    if ( if_clean_field(efp, counter) )
+        efp_balance_work(efp, zero_static_field, NULL);
+
+    if ((res = compute_elec_field(efp)))
+        return res;
 
 	switch (efp->opts.pol_driver) {
 	case EFP_POL_DRIVER_ITERATIVE:
@@ -984,12 +938,20 @@ efp_compute_pol_energy(struct efp *efp, double *energy)
 	if (res)
 		return res;
 
+	if (efp->opts.print > 1) {
+        for (int i = 0; i < efp->n_frag; i++) {
+            printf("Fragment %d\n", i);
+            for (int j = 0; j < efp->frags[i].n_polarizable_pts; j++) {
+                print_pol_pt(efp, i, j);
+            }
+        }
+    }
+
 	*energy = 0.0;
 	efp_balance_work(efp, compute_energy_range, energy);
 	efp_allreduce(energy, 1);
 
-    memcpy(efp->indip_old, efp->indip, efp->n_polarizable_pts * sizeof(vec_t));
-    memcpy(efp->indipconj_old, efp->indipconj, efp->n_polarizable_pts * sizeof(vec_t));
+	counter++;
 
     return EFP_RESULT_SUCCESS;
 }
@@ -1036,11 +998,37 @@ efp_compute_pol_energy_crystal(struct efp *efp, double *energy)
 
     assert(energy);
 
+    // counter to know when to zero out induced dipoles and static field
+    static int counter_crystal = 0;
+
+    // return true (to zero out induced dipoles) only when efp_compute_pol_energy is called
+    // the very first time
+    // do not zero induced dipoles in md, optimization, qm scf iterations etc...
+    if ( if_clean_indip(efp, counter_crystal) ) {
+        efp_balance_work(efp, zero_ind_dipoles, NULL);
+    }
+
+    // return true (to zero out static fields
+    // the very first time
+    // think how to skip recomputing static field in qm scf iterations
+    // check on efp->do_gradient breaks gtests...
+    if ( if_clean_field(efp, counter_crystal) )
+        efp_balance_work(efp, zero_static_field, NULL);
+
     if (res = compute_elec_field_crystal(efp))
         return res;
 
     if (res = efp_compute_id_iterative(efp))
         return res;
+
+    if (efp->opts.print > 1) {
+        for (int i = 0; i < efp->n_frag; i++) {
+            printf("Fragment %d\n", i);
+            for (int j = 0; j < efp->frags[i].n_polarizable_pts; j++) {
+                print_pol_pt(efp, i, j);
+            }
+        }
+    }
 
     *energy = 0.0;
     compute_energy_crystal(efp, energy);
@@ -1053,17 +1041,16 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 {
 	const struct frag *fr_i = efp->frags + frag_idx;
 	const struct polarizable_pt *pt_i = fr_i->polarizable_pts + pt_idx;
-	size_t idx_i = fr_i->polarizable_offset + pt_idx;
 	vec_t force, add_i, add_j, force_, add_i_, add_j_;
 	double e;
 
-	vec_t dipole_i = {
-		0.5 * (efp->indip[idx_i].x + efp->indipconj[idx_i].x),
-		0.5 * (efp->indip[idx_i].y + efp->indipconj[idx_i].y),
-		0.5 * (efp->indip[idx_i].z + efp->indipconj[idx_i].z)
-	};
+    vec_t dipole_i = {
+            0.5 * (pt_i->indip.x + pt_i->indipconj.x),
+            0.5 * (pt_i->indip.y + pt_i->indipconj.y),
+            0.5 * (pt_i->indip.z + pt_i->indipconj.z),
+    };
 
-	for (size_t j = 0; j < efp->n_frag; j++) {
+    for (size_t j = 0; j < efp->n_frag; j++) {
 		if (j == frag_idx || efp_skip_frag_pair(efp, frag_idx, j))
 			continue;
 
@@ -1074,54 +1061,6 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 
 		/* energy without switching applied */
 		double energy = 0.0;
-
-		/* induced dipole - nuclei */
-		for (size_t k = 0; k < fr_j->n_atoms; k++) {
-			struct efp_atom *at_j = fr_j->atoms + k;
-
-			vec_t dr = {
-				at_j->x - pt_i->x - swf.cell.x,
-				at_j->y - pt_i->y - swf.cell.y,
-				at_j->z - pt_i->z - swf.cell.z
-			};
-
-			double p1 = 1.0, p2 = 0.0;
-
-			if (efp->opts.pol_damp == EFP_POL_DAMP_TT) {
-				double r = vec_len(&dr);
-
-				p1 = efp_get_pol_damp_tt(r, fr_i->pol_damp,
-				    fr_j->pol_damp);
-				p2 = efp_get_pol_damp_tt_grad(r, fr_i->pol_damp,
-				    fr_j->pol_damp);
-			}
-
-			e = -efp_charge_dipole_energy(at_j->znuc,
-			    &dipole_i, &dr);
-			efp_charge_dipole_grad(at_j->znuc, &dipole_i, &dr,
-			    &force, &add_j, &add_i);
-			vec_negate(&force);
-
-			vec_scale(&force, p1);
-			vec_scale(&add_i, p1);
-			vec_scale(&add_j, p1);
-
-			force.x += p2 * e * dr.x;
-			force.y += p2 * e * dr.y;
-			force.z += p2 * e * dr.z;
-
-			vec_scale(&force, swf.swf);
-			vec_scale(&add_i, swf.swf);
-			vec_scale(&add_j, swf.swf);
-
-			efp_add_force(efp->grad + frag_idx, CVEC(fr_i->x),
-			    CVEC(pt_i->x), &force, &add_i);
-			efp_sub_force(efp->grad + j, CVEC(fr_j->x),
-			    CVEC(at_j->x), &force, &add_j);
-			efp_add_stress(&swf.dr, &force, &efp->stress);
-
-			energy += p1 * e;
-		}
 
 		/* induced dipole - multipoles */
 		for (size_t k = 0; k < fr_j->n_multipole_pts; k++) {
@@ -1148,31 +1087,37 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 			add_i = vec_zero;
 			add_j = vec_zero;
 
-			/* induced dipole - charge */
-			e = -efp_charge_dipole_energy(pt_j->monopole,
-			    &dipole_i, &dr);
-			efp_charge_dipole_grad(pt_j->monopole, &dipole_i, &dr,
-			    &force_, &add_j_, &add_i_);
-			vec_negate(&force_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+			/* induced dipole - charge+monopole */
+			if (pt_j->if_mon || pt_j->if_znuc) {
+                double qj = pt_j->monopole + pt_j->znuc;
+                e = -efp_charge_dipole_energy(qj, &dipole_i, &dr);
+                efp_charge_dipole_grad(qj, &dipole_i, &dr,
+                                       &force_, &add_j_, &add_i_);
+                vec_negate(&force_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* induced dipole - dipole */
-			e += efp_dipole_dipole_energy(&dipole_i,
-			    &pt_j->dipole, &dr);
-			efp_dipole_dipole_grad(&dipole_i, &pt_j->dipole, &dr,
-			    &force_, &add_i_, &add_j_);
-			vec_negate(&add_j_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+			if (pt_j->if_dip) {
+                e += efp_dipole_dipole_energy(&dipole_i,
+                                              &pt_j->dipole, &dr);
+                efp_dipole_dipole_grad(&dipole_i, &pt_j->dipole, &dr,
+                                       &force_, &add_i_, &add_j_);
+                vec_negate(&add_j_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* induced dipole - quadrupole */
-			e += efp_dipole_quadrupole_energy(&dipole_i,
-			    pt_j->quadrupole, &dr);
-			efp_dipole_quadrupole_grad(&dipole_i, pt_j->quadrupole,
-			    &dr, &force_, &add_i_, &add_j_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+            if (pt_j->if_dip) {
+                e += efp_dipole_quadrupole_energy(&dipole_i,
+                                                  pt_j->quadrupole, &dr);
+                efp_dipole_quadrupole_grad(&dipole_i, pt_j->quadrupole,
+                                           &dr, &force_, &add_i_, &add_j_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* induced dipole - octupole interactions are ignored */
 
@@ -1200,7 +1145,7 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 		/* induced dipole - induced dipoles */
 		for (size_t jj = 0; jj < fr_j->n_polarizable_pts; jj++) {
 			struct polarizable_pt *pt_j = fr_j->polarizable_pts+jj;
-			size_t idx_j = fr_j->polarizable_offset+jj;
+			// size_t idx_j = fr_j->polarizable_offset+jj;
 
 			vec_t dr = {
 				pt_j->x - pt_i->x - swf.cell.x,
@@ -1208,11 +1153,11 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 				pt_j->z - pt_i->z - swf.cell.z
 			};
 
-			vec_t half_dipole_i = {
-				0.5 * efp->indip[idx_i].x,
-				0.5 * efp->indip[idx_i].y,
-				0.5 * efp->indip[idx_i].z
-			};
+            vec_t half_dipole_i = {
+                    0.5 * pt_i->indip.x,
+                    0.5 * pt_i->indip.y,
+                    0.5 * pt_i->indip.z,
+            };
 
 			double p1 = 1.0, p2 = 0.0;
 
@@ -1225,11 +1170,8 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 				    fr_j->pol_damp);
 			}
 
-			e = efp_dipole_dipole_energy(&half_dipole_i,
-			    &efp->indipconj[idx_j], &dr);
-			efp_dipole_dipole_grad(&half_dipole_i,
-			    &efp->indipconj[idx_j], &dr, &force,
-			    &add_i, &add_j);
+            e = efp_dipole_dipole_energy(&half_dipole_i, &pt_j->indipconj, &dr);
+            efp_dipole_dipole_grad(&half_dipole_i, &pt_j->indipconj, &dr, &force, &add_i, &add_j);
 			vec_negate(&add_j);
 
 			vec_scale(&force, p1);
@@ -1351,24 +1293,6 @@ efp_get_electric_field(struct efp *efp, size_t frag_idx, const double *xyz,
         if (swf.swf == 0.0)
             continue;
 
-		/* field due to nuclei */
-		for (size_t j = 0; j < fr_i->n_atoms; j++) {
-			const struct efp_atom *at = fr_i->atoms + j;
-
-			vec_t dr = {
-				xyz[0] - at->x - swf.cell.x,
-				xyz[1] - at->y - swf.cell.y,
-				xyz[2] - at->z - swf.cell.z
-			};
-
-			double r = vec_len(&dr);
-			double r3 = r * r * r;
-
-			elec_field.x += swf.swf * at->znuc * dr.x / r3;
-			elec_field.y += swf.swf * at->znuc * dr.y / r3;
-			elec_field.z += swf.swf * at->znuc * dr.z / r3;
-		}
-
 		/* field due to multipoles */
 		for (size_t j = 0; j < fr_i->n_multipole_pts; j++) {
 			const struct multipole_pt *mpt = fr_i->multipole_pts+j;
@@ -1383,7 +1307,6 @@ efp_get_electric_field(struct efp *efp, size_t frag_idx, const double *xyz,
 		/* field due to induced dipoles */
 		for (size_t j = 0; j < fr_i->n_polarizable_pts; j++) {
 			struct polarizable_pt *pt_i = fr_i->polarizable_pts + j;
-			size_t idx = fr_i->polarizable_offset + j;
 
 			vec_t dr = {
 				xyz[0] - pt_i->x - swf.cell.x,
@@ -1394,15 +1317,17 @@ efp_get_electric_field(struct efp *efp, size_t frag_idx, const double *xyz,
 			double r = vec_len(&dr);
 			double r3 = r * r * r;
 			double r5 = r3 * r * r;
-			double t1 = vec_dot(&efp->indip[idx], &dr);
+			// double t1 = vec_dot(&efp->indip[idx], &dr);
+            double t1 = vec_dot(&pt_i->indip, &dr);
 
-			elec_field.x -= swf.swf * (efp->indip[idx].x / r3 -
-			    3.0 * t1 * dr.x / r5);
-			elec_field.y -= swf.swf * (efp->indip[idx].y / r3 -
-			    3.0 * t1 * dr.y / r5);
-			elec_field.z -= swf.swf * (efp->indip[idx].z / r3 -
-			    3.0 * t1 * dr.z / r5);
-		}
+            elec_field.x -= swf.swf * (pt_i->indip.x / r3 -
+                                       3.0 * t1 * dr.x / r5);
+            elec_field.y -= swf.swf * (pt_i->indip.y / r3 -
+                                       3.0 * t1 * dr.y / r5);
+            elec_field.z -= swf.swf * (pt_i->indip.z / r3 -
+                                       3.0 * t1 * dr.z / r5);
+
+        }
 	}
 
 	if (efp->opts.terms & EFP_TERM_AI_POL) {
@@ -1444,21 +1369,6 @@ efp_get_elec_potential(struct efp *efp, size_t frag_idx, const double *xyz,
         if (swf.swf == 0.0)
             continue;
 
-        /* potential due to nuclei */
-        for (size_t j = 0; j < fr_i->n_atoms; j++) {
-            const struct efp_atom *at = fr_i->atoms + j;
-
-            vec_t dr = {
-                    xyz[0] - at->x - swf.cell.x,
-                    xyz[1] - at->y - swf.cell.y,
-                    xyz[2] - at->z - swf.cell.z
-            };
-
-            double r = vec_len(&dr);
-
-            elpot += swf.swf * at->znuc / r;
-        }
-
         /* potential due to multipoles */
         for (size_t j = 0; j < fr_i->n_multipole_pts; j++) {
             const struct multipole_pt *mpt = fr_i->multipole_pts+j;
@@ -1468,7 +1378,7 @@ efp_get_elec_potential(struct efp *efp, size_t frag_idx, const double *xyz,
         /* potential due to induced dipoles */
         for (size_t j = 0; j < fr_i->n_polarizable_pts; j++) {
             struct polarizable_pt *pt_i = fr_i->polarizable_pts + j;
-            size_t idx = fr_i->polarizable_offset + j;
+            //size_t idx = fr_i->polarizable_offset + j;
 
             vec_t dr = {
                     xyz[0] - pt_i->x - swf.cell.x,
@@ -1479,7 +1389,7 @@ efp_get_elec_potential(struct efp *efp, size_t frag_idx, const double *xyz,
             double r = vec_len(&dr);
             double r3 = r * r * r;
 
-            elpot += swf.swf * 0.5 * (vec_dot(&efp->indip[idx], &dr) + vec_dot(&efp->indipconj[idx], &dr)) / r3;
+            elpot += swf.swf * 0.5 * (vec_dot(&pt_i->indip, &dr) + vec_dot(&pt_i->indipconj, &dr)) / r3;
         }
     }
 
