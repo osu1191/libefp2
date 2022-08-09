@@ -28,6 +28,7 @@
 #define LIBEFP_EFP_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 /** \file efp.h
  * Public libefp interface.
@@ -177,6 +178,8 @@ struct efp_opts {
     int update_params;
     /** Cutoff when updating parameters is "safe". Default 0.0 (never safe) */
     double update_params_cutoff;
+    /** Level of print out */
+    int print;
 };
 
 /** EFP energy terms. */
@@ -224,12 +227,39 @@ struct efp_energy {
 
 /** EFP atom info. */
 struct efp_atom {
-	char label[32];   /**< Atom label. */
-	double x;         /**< X coordinate of atom position. */
-	double y;         /**< Y coordinate of atom position. */
-	double z;         /**< Z coordinate of atom position. */
-	double mass;      /**< Atom mass. */
-	double znuc;      /**< Nuclear charge. */
+    char label[32];   /**< Atom label. */
+    double x;         /**< X coordinate of atom position. */
+    double y;         /**< Y coordinate of atom position. */
+    double z;         /**< Z coordinate of atom position. */
+    double mass;      /**< Atom mass. */
+    double znuc;      /**< Nuclear charge. */
+};
+
+/** Multipole point for working with external programs */
+struct efp_mult_pt {
+    double x;         /**< X coordinate */
+    double y;         /**< Y coordinate */
+    double z;         /**< Z coordinate */
+    double znuc;      /**< Nuclear charge */
+    double monopole;  /**< Monopole */
+    double dipole[3];  /**< Dipole */
+    double quadrupole[6];  /**< Quadrupole */
+    double octupole[10];  /**< Octupole */
+    size_t rank;  /** < Highest non-zero multipole: 0 - monopole, 1 - dipole, 2 - quad, 3 - oct */
+    double screen0;   /**< AI-EFP screening parameter */
+    bool if_screen; /**< If screen0 parameter exists and meaningful */
+};
+
+/** Polarizability point for working with external programs */
+struct efp_pol_pt {
+    double x;         /**< X coordinate */
+    double y;         /**< Y coordinate */
+    double z;         /**< Z coordinate */
+    double indip[3];  /**< induced dipole */
+    double indipconj[3];  /**< conjugated induced dipole */
+    double indip_gs[3];  /**< induced dipole of the ground electronic state*/
+    double indipconj_gs[3];  /**< conjugated induced dipole of the ground electronic state */
+    double ai_field[3]; /** < field due to QM wavefunction */
 };
 
 /**
@@ -254,8 +284,8 @@ struct efp_atom {
  * \return The implemented function should return ::EFP_RESULT_FATAL on error
  * and ::EFP_RESULT_SUCCESS if the calculation has succeeded.
  */
-typedef enum efp_result (*efp_electron_density_field_fn)(size_t n_pt,
-    const double *xyz, double *field, void *user_data);
+//typedef enum efp_result (*efp_electron_density_field_fn)(size_t n_pt,
+//    const double *xyz, double *field, void *user_data);
 
 /**
  * Get a human readable banner string with information about the library.
@@ -346,6 +376,14 @@ enum efp_result efp_add_potential(struct efp *efp, const char *path);
 enum efp_result efp_add_fragment(struct efp *efp, const char *name);
 
 /**
+ * Add a ligand fragment to teh system
+ * @param[in] efp
+ * @param[in] ligand_index Index of the ligand in the fragment list
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result efp_add_ligand(struct efp *efp, int ligand_index);
+
+/**
  * Prepare the calculation.
  *
  * New fragments must NOT be added after a call to this function.
@@ -382,8 +420,8 @@ enum efp_result efp_skip_fragments(struct efp *efp, size_t i, size_t j,
  *
  * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
-enum efp_result efp_set_electron_density_field_fn(struct efp *efp,
-    efp_electron_density_field_fn fn);
+// enum efp_result efp_set_electron_density_field_fn(struct efp *efp,
+//    efp_electron_density_field_fn fn);
 
 /**
  * Set user data to be passed to ::efp_electron_density_field_fn.
@@ -395,8 +433,8 @@ enum efp_result efp_set_electron_density_field_fn(struct efp *efp,
  *
  * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
-enum efp_result efp_set_electron_density_field_user_data(struct efp *efp,
-    void *user_data);
+// enum efp_result efp_set_electron_density_field_user_data(struct efp *efp,
+//    void *user_data);
 
 /**
  * Setup arbitrary point charges interacting with EFP subsystem.
@@ -646,8 +684,40 @@ enum efp_result efp_get_stress_tensor(struct efp *efp, double *stress);
  *
  * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
-enum efp_result efp_get_ai_screen(struct efp *efp, size_t frag_idx,
-    double *screen);
+//enum efp_result efp_get_ai_screen(struct efp *efp, size_t frag_idx,
+//    double *screen);
+
+
+/**
+ * Get all ab initio screening parameters.
+ *
+ * \param[in] efp The efp structure.
+ *
+ * \param[out] screen Array of N elements where screening parameters will be
+ * stored. N is the total number of multipole points in all fragments.
+ *
+ * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result efp_get_all_ai_screen(struct efp *efp, double *screen);
+
+/**
+ * Get the ab initio screening parameters for one fragment.
+ *
+ * \param[in] efp The efp structure.
+ *
+ * \param[in] frag_idx Index of a fragment. Must be a value between zero and
+ * the total number of fragments minus one.
+ *
+ * \param[out] screen Array of N elements where screening parameters will be
+ * stored. N is the total number of multipole points in fragment frag_idx.
+ *
+ * \param[out] if_screen 0 if screening parameters are set to 10.0 (could be ignored);
+ * 1 if at least one point has != 10 screening parameter
+ *
+ * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result efp_get_frag_ai_screen(struct efp *efp, size_t frag_idx,
+                                  double *screen, int if_screen);
 
 /**
  * Set ab initio orbital energies.
@@ -767,18 +837,19 @@ enum efp_result efp_get_frag_multiplicity(struct efp *efp, size_t frag_idx,
 enum efp_result efp_get_frag_multipole_count(struct efp *efp, size_t frag_idx,
     size_t *n_mult);
 
+enum efp_result efp_get_frag_multipole_coord(struct efp *efp, size_t frag_idx,
+                                             size_t *n_mult);
+
 /**
- *
- * @param[in] efp The efp structure
- * @param[in] frag_idx Index of a fragment. Must be a value between zero and
- * the total number of fragments minus one.
- * @param[in] mult_idx Index of a multipole point. Must be a value between 0 and
- * the total number of multipoles in thios fragment minus one.
- * @param[out] rank Highest rank of multipole (0 - charge, 1 - dipole, 2 - quad, 3 - oct).
- * If all values are zero, rank = -1.
- * @return
+ * Computes multipole rank of a fragment
+ * @param efp
+ * @param[in] frag_idx fragment index
+ * @param[out] rank Highest rank of multipoles in the fragment
+ * (0 - charge, 1 - dipole, 2 - quad, 3 - oct)
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
-enum efp_result efp_get_frag_mult_rank(struct efp *efp, size_t frag_idx, size_t mult_idx, size_t *rank);
+enum efp_result
+efp_get_frag_rank(struct efp *efp, size_t frag_idx, size_t *rank);
 
 /**
  * Get total number of multipoles from EFP electrostatics.
@@ -827,6 +898,55 @@ enum efp_result efp_get_multipole_coordinates(struct efp *efp, double *xyz);
  * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
 enum efp_result efp_get_multipole_values(struct efp *efp, double *mult);
+
+/**
+ * Get electrostatics dipoles from EFP fragments.
+ *
+ * \param[in] efp The efp structure.
+ *
+ * \param[out] dipoles Array with all efp dipoles.
+ *
+ * The size of the \p mult array must be at least [3 * \p n_mult] elements
+ * where \p n_mult is the value returned by the ::efp_get_multipole_count function.
+ *
+ * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result efp_get_dipole_values(struct efp *efp, double *dipoles);
+
+/**
+ * Get electrostatics quadrupoles from EFP fragments.
+ *
+ * \param[in] efp The efp structure.
+ *
+ * \param[out] quad Array with all efp quadrupoles.
+ *
+ * The size of the \p mult array must be at least [6 * \p n_mult] elements
+ * where \p n_mult is the value returned by the ::efp_get_multipole_count function.
+ *
+ *  * Quadrupoles are stored in the following order:
+ *    \a xx, \a yy, \a zz, \a xy, \a xz, \a yz
+ *
+ * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result efp_get_quadrupole_values(struct efp *efp, double *quad);
+
+/**
+ * Get electrostatics octupoles from EFP fragments.
+ *
+ * \param[in] efp The efp structure.
+ *
+ * \param[out] oct Array with all efp octupoles.
+ *
+ * The size of the \p mult array must be at least [10 * \p n_mult] elements
+ * where \p n_mult is the value returned by the ::efp_get_multipole_count function.
+ *
+ * Octupoles are stored in the following order:
+ *    \a xxx, \a yyy, \a zzz, \a xxy, \a xxz,
+ *    \a xyy, \a yyz, \a xzz, \a yzz, \a xyz
+ *
+ * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result efp_get_octupole_values(struct efp *efp, double *oct);
 
 /**
  *  Get the number of polarization induced dipoles from a particular fragment.
@@ -909,6 +1029,15 @@ enum efp_result efp_get_old_induced_dipole_values(struct efp *efp, double *dip);
  * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
 enum efp_result efp_get_old_induced_dipole_conj_values(struct efp *efp, double *dip);
+
+/**
+ * Writes induced dipoles from dip array into polarizable points
+ * @param efp
+ * @param dip pointer to array with induced dipoles
+ * @param if_conjug 0 to write indip and 1 to write indipconj
+ * @return
+ */
+enum efp_result efp_set_induced_dipole_values(struct efp *efp, double *dip, int if_conjug);
 
 /**
  * Get the number of LMOs in a fragment.
@@ -1108,6 +1237,42 @@ enum efp_result efp_get_frag_atoms(struct efp *efp, size_t frag_idx,
 enum efp_result efp_set_frag_atoms(struct efp *efp, size_t frag_idx, size_t n_atoms,
                    struct efp_atom *atoms);
 
+/** Copies information about multipole point pt_idx at fragment frag_idx into
+ * efp_mult_pt structure mult_pt
+ *
+ * @param[in] efp
+ * @param[in] frag_idx Fragment index
+ * @param[in] pt_idx Multipole point index
+ * @param[out] mult_pt efp_mult_pt to be returned
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result
+efp_get_frag_mult_pt(struct efp *efp, size_t frag_idx, size_t pt_idx,
+                     struct efp_mult_pt *mult_pt);
+
+/**
+ *
+ * @param efp
+ * @param[in] frag_idx Fragment index
+ * @param[in] pt_idx Polarizability point index
+ * @param[out] pol_pt efp_pol_pt to be returned
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result
+efp_get_frag_pol_pt(struct efp *efp, size_t frag_idx, size_t pt_idx,
+                    struct efp_pol_pt *pol_pt);
+
+/**
+ * Saves ab initio field info from an efp_pol_pt structure into polarizable_pt on a fragment frag_idx
+ * @param efp
+ * @param pol_pt Polarization point
+ * @param frag_idx
+ * @param pt_idx
+ * @return
+ */
+enum efp_result
+save_ai_field_pol_pt(struct efp *efp, struct efp_pol_pt *pol_pt, size_t frag_idx, size_t pt_idx);
+
 /**
  * Get electric field for a point on a fragment.
  *
@@ -1253,6 +1418,68 @@ void n_symm_frag(struct efp *efp, size_t *symm_frag);
  */
 //static enum efp_result
 //check_frag_atoms(const struct frag *frag, const struct frag *lib);
+
+/**
+ * Prints information of fragment atoms
+ * @param efp
+ * @param frag_index fragment index
+ * @param atom_index atom index in the fragment
+ */
+void print_atoms(struct efp *efp, size_t frag_index, size_t atom_index);
+
+/**
+ * Prints information on multipole point
+ * @param efp
+ * @param frag_index fragment index
+ * @param pt_index multipole point index
+ */
+void print_mult_pt(struct efp *efp, size_t frag_index, size_t pt_index);
+
+/**
+ * Prints information on polarizable point
+ * @param efp
+ * @param frag_index fragment index
+ * @param pol_index index of polarizable point
+ */
+void print_pol_pt(struct efp *efp, size_t frag_index, size_t pol_index);
+
+/**
+ * Prints information about ligand if any
+ * @param efp
+ * @param frag_index index of fragment
+ */
+void print_ligand(struct efp *efp, size_t frag_index);
+
+/**
+ * Prints information on fragment
+ * @param efp
+ * @param frag_index fragment index
+ */
+void print_frag_info(struct efp *efp, size_t frag_index);
+
+/**
+ * Prints information of efp_mult_pt object
+ * @param pt
+ */
+void print_efp_mult_pt(struct efp_mult_pt *pt);
+
+/**
+ * Prints information about efp_pol_pt object
+ * @param pt
+ */
+void print_efp_pol_pt(struct efp_pol_pt *pt);
+
+/**
+ * Prints all information of efp_energy structure
+ * @param energy
+ */
+void print_ene(struct efp_energy *energy);
+
+/**
+ * Prints all information of efp->pair_energies
+ * @param efp
+ */
+void print_energies(struct efp *efp);
 
 
 #ifdef __cplusplus

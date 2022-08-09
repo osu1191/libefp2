@@ -28,6 +28,9 @@
 #include "elec.h"
 #include "private.h"
 
+#include <stdio.h>
+#include <stdbool.h>
+
 static double
 get_screen_damping(double r_ij, double pi, double pj)
 {
@@ -62,106 +65,6 @@ get_screen_damping_grad(double r_ij, double pi, double pj)
 }
 
 static double
-atom_mult_energy(struct efp *efp, struct frag *fr_i, struct frag *fr_j,
-    size_t atom_i_idx, size_t pt_j_idx, const struct swf *swf)
-{
-	struct efp_atom *at_i = fr_i->atoms + atom_i_idx;
-	struct multipole_pt *pt_j = fr_j->multipole_pts + pt_j_idx;
-
-	vec_t dr = {
-		pt_j->x - at_i->x - swf->cell.x,
-		pt_j->y - at_i->y - swf->cell.y,
-		pt_j->z - at_i->z - swf->cell.z
-	};
-
-	double energy = 0.0, ccdamp = 1.0;
-
-	if (efp->opts.elec_damp == EFP_ELEC_DAMP_SCREEN) {
-		double r = vec_len(&dr);
-		double sp = fr_j->screen_params[pt_j_idx];
-
-		ccdamp = get_screen_damping(r, sp, HUGE_VAL);
-	}
-
-	/* charge - monopole */
-	energy += ccdamp * efp_charge_charge_energy(at_i->znuc,
-	    pt_j->monopole, &dr);
-
-	/* charge - dipole */
-	energy += efp_charge_dipole_energy(at_i->znuc, &pt_j->dipole, &dr);
-
-	/* charge - quadrupole */
-	energy += efp_charge_quadrupole_energy(at_i->znuc,
-	    pt_j->quadrupole, &dr);
-
-	/* charge - octupole */
-	energy += efp_charge_octupole_energy(at_i->znuc, pt_j->octupole, &dr);
-
-	return energy;
-}
-
-static void
-atom_mult_grad(struct efp *efp, size_t fr_i_idx, size_t fr_j_idx,
-    size_t atom_i_idx, size_t pt_j_idx, const struct swf *swf)
-{
-	const struct frag *fr_i = efp->frags + fr_i_idx;
-	const struct frag *fr_j = efp->frags + fr_j_idx;
-	const struct efp_atom *at_i = fr_i->atoms + atom_i_idx;
-	const struct multipole_pt *pt_j = fr_j->multipole_pts + pt_j_idx;
-
-	vec_t dr = {
-		pt_j->x - at_i->x - swf->cell.x,
-		pt_j->y - at_i->y - swf->cell.y,
-		pt_j->z - at_i->z - swf->cell.z
-	};
-
-	vec_t force_, torque_i_, torque_j_;
-	vec_t force = vec_zero, torque_i = vec_zero, torque_j = vec_zero;
-
-	/* charge - charge */
-	efp_charge_charge_grad(at_i->znuc, pt_j->monopole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-
-	if (efp->opts.elec_damp == EFP_ELEC_DAMP_SCREEN) {
-		double r = vec_len(&dr);
-		double sp = fr_j->screen_params[pt_j_idx];
-		double gdamp = get_screen_damping_grad(r, sp, HUGE_VAL);
-
-		force_.x *= gdamp;
-		force_.y *= gdamp;
-		force_.z *= gdamp;
-	}
-
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
-
-	/* charge - dipole */
-	efp_charge_dipole_grad(at_i->znuc, &pt_j->dipole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
-
-	/* charge - quadrupole */
-	efp_charge_quadrupole_grad(at_i->znuc, pt_j->quadrupole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-	vec_negate(&torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
-
-	/* charge - octupole */
-	efp_charge_octupole_grad(at_i->znuc, pt_j->octupole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
-
-	vec_scale(&force, swf->swf);
-	vec_scale(&torque_i, swf->swf);
-	vec_scale(&torque_j, swf->swf);
-
-	efp_add_force(efp->grad + fr_i_idx, CVEC(fr_i->x), CVEC(at_i->x),
-	    &force, &torque_i);
-	efp_sub_force(efp->grad + fr_j_idx, CVEC(fr_j->x), CVEC(pt_j->x),
-	    &force, &torque_j);
-	efp_add_stress(&swf->dr, &force, &efp->stress);
-}
-
-static double
 mult_mult_energy(struct efp *efp, size_t fr_i_idx, size_t fr_j_idx,
     size_t pt_i_idx, size_t pt_j_idx, const struct swf *swf)
 {
@@ -176,56 +79,79 @@ mult_mult_energy(struct efp *efp, size_t fr_i_idx, size_t fr_j_idx,
 		pt_j->z - pt_i->z - swf->cell.z
 	};
 
-	double energy = 0.0, ccdamp = 1.0;
+	double energy = 0.0, ccdamp = 1.0, ccdamp_i = 1.0, ccdamp_j = 1.0;
+	double qi = pt_i->monopole + pt_i->znuc;
+    double qj = pt_j->monopole + pt_j->znuc;
 
 	if (efp->opts.elec_damp == EFP_ELEC_DAMP_SCREEN) {
 		double r = vec_len(&dr);
-		double screen_i = fr_i->screen_params[pt_i_idx];
-		double screen_j = fr_j->screen_params[pt_j_idx];
+		//double screen_i = fr_i->screen_params[pt_i_idx];
+		//double screen_j = fr_j->screen_params[pt_j_idx];
+        double screen_i = pt_i->screen2;
+        double screen_j = pt_j->screen2;
 
 		ccdamp = get_screen_damping(r, screen_i, screen_j);
+        ccdamp_j = get_screen_damping(r, screen_j, HUGE_VAL);
+        ccdamp_i = get_screen_damping(r, screen_i, HUGE_VAL);
 	}
 
-	/* monopole - monopole */
-	energy += ccdamp * efp_charge_charge_energy(pt_i->monopole,
-	    pt_j->monopole, &dr);
+    // charge - monopole
+    if (pt_i->if_znuc && pt_j->if_mon)
+        energy += ccdamp_j * efp_charge_charge_energy(pt_i->znuc, pt_j->monopole, &dr);
 
-	/* monopole - dipole */
-	energy += efp_charge_dipole_energy(pt_i->monopole, &pt_j->dipole, &dr);
+    // monopole - charge
+    if (pt_j->if_znuc && pt_i->if_mon)
+        energy += ccdamp_i * efp_charge_charge_energy(pt_j->znuc, pt_i->monopole, &dr);
 
-	/* dipole - monopole */
-	energy -= efp_charge_dipole_energy(pt_j->monopole, &pt_i->dipole, &dr);
+    // charge-charge
+    if (pt_i->if_znuc && pt_j->if_znuc)
+        energy += efp_charge_charge_energy(pt_i->znuc, pt_j->znuc, &dr);
 
-	/* monopole - quadrupole */
-	energy += efp_charge_quadrupole_energy(pt_i->monopole,
-	    pt_j->quadrupole, &dr);
+    // monopole - monopole
+    if (pt_i->if_mon && pt_j->if_mon)
+	    energy += ccdamp * efp_charge_charge_energy(pt_i->monopole,
+	            pt_j->monopole, &dr);
 
-	/* quadrupole - monopole */
-	energy += efp_charge_quadrupole_energy(pt_j->monopole,
-	    pt_i->quadrupole, &dr);
+	// monopole - dipole
+    if ((pt_i->if_znuc || pt_i->if_mon) && pt_j->if_dip)
+	    energy += efp_charge_dipole_energy(qi, &pt_j->dipole, &dr);
 
-	/* monopole - octupole */
-	energy += efp_charge_octupole_energy(pt_i->monopole,
-	    pt_j->octupole, &dr);
+	// dipole - monopole
+    if ((pt_j->if_znuc || pt_j->if_mon) && pt_i->if_dip)
+	    energy -= efp_charge_dipole_energy(qj, &pt_i->dipole, &dr);
 
-	/* octupole - monopole */
-	energy -= efp_charge_octupole_energy(pt_j->monopole,
-	    pt_i->octupole, &dr);
+	// monopole - quadrupole
+    if ((pt_i->if_znuc || pt_i->if_mon) && pt_j->if_quad)
+        energy += efp_charge_quadrupole_energy(qi, pt_j->quadrupole, &dr);
+
+	// quadrupole - monopole
+    if ((pt_j->if_znuc || pt_j->if_mon) && pt_i->if_quad)
+    	energy += efp_charge_quadrupole_energy(qj, pt_i->quadrupole, &dr);
+
+	// monopole - octupole
+    if ((pt_i->if_znuc || pt_i->if_mon) && pt_j->if_oct)
+        energy += efp_charge_octupole_energy(qi, pt_j->octupole, &dr);
+
+	// octupole - monopole
+    if ((pt_j->if_znuc || pt_j->if_mon) && pt_i->if_oct)
+    	energy -= efp_charge_octupole_energy(qj, pt_i->octupole, &dr);
 
 	/* dipole - dipole */
-	energy += efp_dipole_dipole_energy(&pt_i->dipole, &pt_j->dipole, &dr);
+    if (pt_i->if_dip && pt_j->if_dip)
+        energy += efp_dipole_dipole_energy(&pt_i->dipole, &pt_j->dipole, &dr);
 
 	/* dipole - quadrupole */
-	energy += efp_dipole_quadrupole_energy(&pt_i->dipole,
-	    pt_j->quadrupole, &dr);
+    if (pt_i->if_dip && pt_j->if_quad)
+    	energy += efp_dipole_quadrupole_energy(&pt_i->dipole, pt_j->quadrupole, &dr);
 
 	/* quadrupole - dipole */
-	energy -= efp_dipole_quadrupole_energy(&pt_j->dipole,
-	    pt_i->quadrupole, &dr);
+    if (pt_j->if_dip && pt_i->if_dip)
+        energy -= efp_dipole_quadrupole_energy(&pt_j->dipole, pt_i->quadrupole, &dr);
 
 	/* quadrupole - quadrupole */
-	energy += efp_quadrupole_quadrupole_energy(pt_i->quadrupole,
-	    pt_j->quadrupole, &dr);
+    if (pt_i->if_quad && pt_j->if_quad)
+        energy += efp_quadrupole_quadrupole_energy(pt_i->quadrupole,
+                pt_j->quadrupole, &dr);
 
 	return energy;
 }
@@ -245,81 +171,151 @@ mult_mult_grad(struct efp *efp, size_t fr_i_idx, size_t fr_j_idx,
 		pt_j->z - pt_i->z - swf->cell.z
 	};
 
-	vec_t force_, torque_i_, torque_j_;
+    double qi = pt_i->monopole + pt_i->znuc;
+    double qj = pt_j->monopole + pt_j->znuc;
+
+    bool if_qi = pt_i->if_mon || pt_i->if_znuc;
+    bool if_qj = pt_j->if_mon || pt_j->if_znuc;
+
+    vec_t force_, torque_i_, torque_j_;
 	vec_t force = vec_zero, torque_i = vec_zero, torque_j = vec_zero;
 
-	/* monopole - monopole */
-	efp_charge_charge_grad(pt_i->monopole, pt_j->monopole, &dr,
-	    &force_, &torque_i_, &torque_j_);
+    // charge-charge
+    if (pt_i->if_znuc && pt_j->if_znuc) {
+        efp_charge_charge_grad(pt_i->znuc, pt_j->znuc, &dr,
+                               &force_, &torque_i_, &torque_j_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
 
-	if (efp->opts.elec_damp == EFP_ELEC_DAMP_SCREEN) {
-		double r = vec_len(&dr);
-		double screen_i = fr_i->screen_params[pt_i_idx];
-		double screen_j = fr_j->screen_params[pt_j_idx];
-		double gdamp = get_screen_damping_grad(r, screen_i, screen_j);
+    // monopole - monopole
+    if (pt_i->if_mon && pt_j->if_mon) {
+        efp_charge_charge_grad(pt_i->monopole, pt_j->monopole, &dr,
+                               &force_, &torque_i_, &torque_j_);
 
-		force_.x *= gdamp;
-		force_.y *= gdamp;
-		force_.z *= gdamp;
-	}
+        if (efp->opts.elec_damp == EFP_ELEC_DAMP_SCREEN) {
+            double r = vec_len(&dr);
+            double screen_i = pt_i->screen2;
+            double screen_j = pt_j->screen2;
+            double gdamp = get_screen_damping_grad(r, screen_i, screen_j);
 
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+            force_.x *= gdamp;
+            force_.y *= gdamp;
+            force_.z *= gdamp;
+        }
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
 
-	/* monopole - dipole */
-	efp_charge_dipole_grad(pt_i->monopole, &pt_j->dipole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+	// charge-monopole
+    if (pt_i->if_znuc && pt_j->if_mon) {
+        efp_charge_charge_grad(pt_i->znuc, pt_j->monopole, &dr,
+                               &force_, &torque_i_, &torque_j_);
 
-	/* dipole - monopole */
-	efp_charge_dipole_grad(pt_j->monopole, &pt_i->dipole, &dr,
-	    &force_, &torque_j_, &torque_i_);
-	vec_negate(&force_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+        if (efp->opts.elec_damp == EFP_ELEC_DAMP_SCREEN) {
+            double r = vec_len(&dr);
+            double screen_j = pt_j->screen2;
+            double gdamp_j = get_screen_damping_grad(r, screen_j, HUGE_VAL);
 
-	/* monopole - quadrupole */
-	efp_charge_quadrupole_grad(pt_i->monopole, pt_j->quadrupole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-	vec_negate(&torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+            force_.x *= gdamp_j;
+            force_.y *= gdamp_j;
+            force_.z *= gdamp_j;
+            //printf("MM %d %d %d %d gdamp %lf \n",
+              //     fr_i_idx, fr_j_idx, pt_i_idx, pt_j_idx, gdamp_j);
+        }
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
 
-	/* quadrupole - monopole */
-	efp_charge_quadrupole_grad(pt_j->monopole, pt_i->quadrupole, &dr,
-	    &force_, &torque_j_, &torque_i_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    // monopole-charge
+    if (pt_j->if_znuc && pt_i->if_mon) {
+        efp_charge_charge_grad(pt_i->monopole, pt_j->znuc, &dr,
+                               &force_, &torque_i_, &torque_j_);
 
-	/* monopole - octupole */
-	efp_charge_octupole_grad(pt_i->monopole, pt_j->octupole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+        if (efp->opts.elec_damp == EFP_ELEC_DAMP_SCREEN) {
+            double r = vec_len(&dr);
+            double screen_i = pt_i->screen2;
+            double gdamp_i = get_screen_damping_grad(r, screen_i, HUGE_VAL);
 
-	/* octupole - monopole */
-	efp_charge_octupole_grad(pt_j->monopole, pt_i->octupole, &dr,
-	    &force_, &torque_j_, &torque_i_);
-	vec_negate(&force_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+            force_.x *= gdamp_i;
+            force_.y *= gdamp_i;
+            force_.z *= gdamp_i;
+        }
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
+
+    // monopole - dipole
+    if (if_qi && pt_j->if_dip) {
+        efp_charge_dipole_grad(qi, &pt_j->dipole, &dr,
+                               &force_, &torque_i_, &torque_j_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
+
+	// dipole - monopole
+    if (if_qj && pt_i->if_dip) {
+        efp_charge_dipole_grad(qj, &pt_i->dipole, &dr,
+                               &force_, &torque_j_, &torque_i_);
+        vec_negate(&force_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
+
+	// monopole - quadrupole
+    if (if_qi && pt_j->if_quad) {
+        efp_charge_quadrupole_grad(qi, pt_j->quadrupole, &dr,
+                                   &force_, &torque_i_, &torque_j_);
+        vec_negate(&torque_j_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
+
+	// quadrupole - monopole
+    if (if_qj && pt_i->if_quad) {
+        efp_charge_quadrupole_grad(qj, pt_i->quadrupole, &dr,
+                                   &force_, &torque_j_, &torque_i_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
+
+	// monopole - octupole
+    if (if_qi && pt_j->if_oct) {
+        efp_charge_octupole_grad(qi, pt_j->octupole, &dr,
+                                 &force_, &torque_i_, &torque_j_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
+
+	// octupole - monopole
+    if (if_qj && pt_i->if_oct) {
+        efp_charge_octupole_grad(qj, pt_i->octupole, &dr,
+                                 &force_, &torque_j_, &torque_i_);
+        vec_negate(&force_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
 
 	/* dipole - dipole */
-	efp_dipole_dipole_grad(&pt_i->dipole, &pt_j->dipole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-	vec_negate(&torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    if (pt_i->if_dip && pt_j->if_dip) {
+        efp_dipole_dipole_grad(&pt_i->dipole, &pt_j->dipole, &dr,
+                               &force_, &torque_i_, &torque_j_);
+        vec_negate(&torque_j_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
 
 	/* dipole - quadrupole */
-	efp_dipole_quadrupole_grad(&pt_i->dipole, pt_j->quadrupole, &dr,
-	    &force_, &torque_i_, &torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    if (pt_i->if_dip && pt_j->if_quad) {
+        efp_dipole_quadrupole_grad(&pt_i->dipole, pt_j->quadrupole, &dr,
+                                   &force_, &torque_i_, &torque_j_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
 
 	/* quadrupole - dipole */
-	efp_dipole_quadrupole_grad(&pt_j->dipole, pt_i->quadrupole, &dr,
-	    &force_, &torque_j_, &torque_i_);
-	vec_negate(&force_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    if (pt_j->if_dip && pt_i->if_quad) {
+        efp_dipole_quadrupole_grad(&pt_j->dipole, pt_i->quadrupole, &dr,
+                                   &force_, &torque_j_, &torque_i_);
+        vec_negate(&force_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
 
 	/* quadrupole - quadrupole */
-	efp_quadrupole_quadrupole_grad(pt_i->quadrupole, pt_j->quadrupole,
-	    &dr, &force_, &torque_i_, &torque_j_);
-	vec_negate(&torque_j_);
-	add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    if (pt_i->if_quad && pt_j->if_quad) {
+        efp_quadrupole_quadrupole_grad(pt_i->quadrupole, pt_j->quadrupole,
+                                       &dr, &force_, &torque_i_, &torque_j_);
+        vec_negate(&torque_j_);
+        add_3(&force, &force_, &torque_i, &torque_i_, &torque_j, &torque_j_);
+    }
 
 	vec_scale(&force, swf->swf);
 	vec_scale(&torque_i, swf->swf);
@@ -345,65 +341,6 @@ efp_frag_frag_elec(struct efp *efp, size_t fr_i_idx, size_t fr_j_idx)
         return 0.0;
     }
     else {
-        /* nuclei - nuclei */
-        for (size_t ii = 0; ii < fr_i->n_atoms; ii++) {
-            for (size_t jj = 0; jj < fr_j->n_atoms; jj++) {
-                struct efp_atom *at_i = fr_i->atoms + ii;
-                struct efp_atom *at_j = fr_j->atoms + jj;
-
-                vec_t dr = {
-                        at_j->x - at_i->x - swf.cell.x,
-                        at_j->y - at_i->y - swf.cell.y,
-                        at_j->z - at_i->z - swf.cell.z
-                };
-
-                energy += efp_charge_charge_energy(at_i->znuc,
-                                                   at_j->znuc, &dr);
-                if (efp->do_gradient) {
-                    vec_t force, add_i, add_j;
-
-                    efp_charge_charge_grad(at_i->znuc, at_j->znuc,
-                                           &dr, &force, &add_i, &add_j);
-                    vec_scale(&force, swf.swf);
-                    efp_add_force(efp->grad + fr_i_idx,
-                                  CVEC(fr_i->x), CVEC(at_i->x), &force, NULL);
-                    efp_sub_force(efp->grad + fr_j_idx,
-                                  CVEC(fr_j->x), CVEC(at_j->x), &force, NULL);
-                    efp_add_stress(&swf.dr, &force, &efp->stress);
-                }
-            }
-        }
-
-        /* nuclei - mult points */
-        for (size_t ii = 0; ii < fr_i->n_atoms; ii++) {
-            for (size_t jj = 0; jj < fr_j->n_multipole_pts; jj++) {
-                energy += atom_mult_energy(efp, fr_i, fr_j,
-                                           ii, jj, &swf);
-                if (efp->do_gradient) {
-                    atom_mult_grad(efp, fr_i_idx, fr_j_idx,
-                                   ii, jj, &swf);
-                }
-            }
-        }
-
-        /* mult points - nuclei */
-        for (size_t jj = 0; jj < fr_j->n_atoms; jj++) {
-            for (size_t ii = 0; ii < fr_i->n_multipole_pts; ii++) {
-                struct swf swf2 = swf;
-
-                vec_negate(&swf2.cell);
-                vec_negate(&swf2.dr);
-                vec_negate(&swf2.dswf);
-
-                energy += atom_mult_energy(efp, fr_j, fr_i,
-                                           jj, ii, &swf2);
-                if (efp->do_gradient) {
-                    atom_mult_grad(efp, fr_j_idx, fr_i_idx,
-                                   jj, ii, &swf2);
-                }
-            }
-        }
-
         /* mult points - mult points */
         for (size_t ii = 0; ii < fr_i->n_multipole_pts; ii++) {
             for (size_t jj = 0; jj < fr_j->n_multipole_pts; jj++) {
@@ -480,52 +417,56 @@ efp_update_elec(struct frag *frag)
 		    CVEC(in->x), VEC(out->x));
 
 		/* rotate dipole */
-		out->dipole = mat_vec(&frag->rotmat, &in->dipole);
+		if (out->if_dip)
+		    out->dipole = mat_vec(&frag->rotmat, &in->dipole);
 
 		/* rotate quadrupole */
-		rotate_quadrupole(&frag->rotmat,
-		    in->quadrupole, out->quadrupole);
+		if (out->if_quad) {
+            rotate_quadrupole(&frag->rotmat, in->quadrupole, out->quadrupole);
 
-		/* correction for Buckingham quadrupoles */
-		double *quad = out->quadrupole;
+            /* correction for Buckingham quadrupoles */
+            double *quad = out->quadrupole;
 
-		double qtr = quad[quad_idx(0, 0)] +
-			     quad[quad_idx(1, 1)] +
-			     quad[quad_idx(2, 2)];
+            double qtr = quad[quad_idx(0, 0)] +
+                         quad[quad_idx(1, 1)] +
+                         quad[quad_idx(2, 2)];
 
-		quad[0] = 1.5 * quad[0] - 0.5 * qtr;
-		quad[1] = 1.5 * quad[1] - 0.5 * qtr;
-		quad[2] = 1.5 * quad[2] - 0.5 * qtr;
-		quad[3] = 1.5 * quad[3];
-		quad[4] = 1.5 * quad[4];
-		quad[5] = 1.5 * quad[5];
+            quad[0] = 1.5 * quad[0] - 0.5 * qtr;
+            quad[1] = 1.5 * quad[1] - 0.5 * qtr;
+            quad[2] = 1.5 * quad[2] - 0.5 * qtr;
+            quad[3] = 1.5 * quad[3];
+            quad[4] = 1.5 * quad[4];
+            quad[5] = 1.5 * quad[5];
+        }
 
 		/* rotate octupole */
-		rotate_octupole(&frag->rotmat, in->octupole, out->octupole);
+		if (out->if_oct) {
+            rotate_octupole(&frag->rotmat, in->octupole, out->octupole);
 
-		/* correction for Buckingham octupoles */
-		double *oct = out->octupole;
+            /* correction for Buckingham octupoles */
+            double *oct = out->octupole;
 
-		double otrx = oct[oct_idx(0, 0, 0)] +
-			      oct[oct_idx(0, 1, 1)] +
-			      oct[oct_idx(0, 2, 2)];
-		double otry = oct[oct_idx(0, 0, 1)] +
-			      oct[oct_idx(1, 1, 1)] +
-			      oct[oct_idx(1, 2, 2)];
-		double otrz = oct[oct_idx(0, 0, 2)] +
-			      oct[oct_idx(1, 1, 2)] +
-			      oct[oct_idx(2, 2, 2)];
+            double otrx = oct[oct_idx(0, 0, 0)] +
+                          oct[oct_idx(0, 1, 1)] +
+                          oct[oct_idx(0, 2, 2)];
+            double otry = oct[oct_idx(0, 0, 1)] +
+                          oct[oct_idx(1, 1, 1)] +
+                          oct[oct_idx(1, 2, 2)];
+            double otrz = oct[oct_idx(0, 0, 2)] +
+                          oct[oct_idx(1, 1, 2)] +
+                          oct[oct_idx(2, 2, 2)];
 
-		oct[0] = 2.5 * oct[0] - 1.5 * otrx;
-		oct[1] = 2.5 * oct[1] - 1.5 * otry;
-		oct[2] = 2.5 * oct[2] - 1.5 * otrz;
-		oct[3] = 2.5 * oct[3] - 0.5 * otry;
-		oct[4] = 2.5 * oct[4] - 0.5 * otrz;
-		oct[5] = 2.5 * oct[5] - 0.5 * otrx;
-		oct[6] = 2.5 * oct[6] - 0.5 * otrz;
-		oct[7] = 2.5 * oct[7] - 0.5 * otrx;
-		oct[8] = 2.5 * oct[8] - 0.5 * otry;
-		oct[9] = 2.5 * oct[9];
+            oct[0] = 2.5 * oct[0] - 1.5 * otrx;
+            oct[1] = 2.5 * oct[1] - 1.5 * otry;
+            oct[2] = 2.5 * oct[2] - 1.5 * otrz;
+            oct[3] = 2.5 * oct[3] - 0.5 * otry;
+            oct[4] = 2.5 * oct[4] - 0.5 * otrz;
+            oct[5] = 2.5 * oct[5] - 0.5 * otrx;
+            oct[6] = 2.5 * oct[6] - 0.5 * otrz;
+            oct[7] = 2.5 * oct[7] - 0.5 * otrx;
+            oct[8] = 2.5 * oct[8] - 0.5 * otry;
+            oct[9] = 2.5 * oct[9];
+        }
 	}
 }
 
@@ -535,6 +476,7 @@ compute_ai_elec_frag(struct efp *efp, size_t frag_idx)
 	struct frag *fr_i = efp->frags + frag_idx;
 	double energy = 0.0;
 
+	/*
 	for (size_t i = 0; i < fr_i->n_atoms; i++) {
 		for (size_t j = 0; j < efp->n_ptc; j++) {
 			struct efp_atom *at_i = fr_i->atoms + i;
@@ -543,27 +485,34 @@ compute_ai_elec_frag(struct efp *efp, size_t frag_idx)
 			energy += efp_charge_charge_energy(at_i->znuc,
 			    efp->ptc[j], &dr);
 		}
-	}
+	} */
+
 	for (size_t i = 0; i < fr_i->n_multipole_pts; i++) {
 		for (size_t j = 0; j < efp->n_ptc; j++) {
 			struct multipole_pt *pt_i = fr_i->multipole_pts + i;
 			vec_t dr = vec_sub(CVEC(pt_i->x), efp->ptc_xyz + j);
 
 			/* charge - monopole */
-			energy += efp_charge_charge_energy(efp->ptc[j],
-			    pt_i->monopole, &dr);
+			// WHY NOT USING SCREEN2 HERE???
+			if (pt_i->if_mon || pt_i->if_znuc) {
+                double qi = pt_i->monopole + pt_i->znuc;
+                energy += efp_charge_charge_energy(efp->ptc[j],
+                                                   qi, &dr);
+            }
+            // energy += efp_charge_charge_energy(efp->ptc[j],
+            //                                 pt_i->monopole, &dr);
 
 			/* charge - dipole */
-			energy += efp_charge_dipole_energy(efp->ptc[j],
-			    &pt_i->dipole, &dr);
+			if (pt_i->if_dip)
+			    energy += efp_charge_dipole_energy(efp->ptc[j], &pt_i->dipole, &dr);
 
 			/* charge - quadrupole */
-			energy += efp_charge_quadrupole_energy(efp->ptc[j],
-			    pt_i->quadrupole, &dr);
+            if (pt_i->if_quad)
+			    energy += efp_charge_quadrupole_energy(efp->ptc[j], pt_i->quadrupole, &dr);
 
 			/* charge - octupole */
-			energy += efp_charge_octupole_energy(efp->ptc[j],
-			    pt_i->octupole, &dr);
+            if (pt_i->if_oct)
+                energy += efp_charge_octupole_energy(efp->ptc[j], pt_i->octupole, &dr);
 		}
 	}
 	return energy;
@@ -576,7 +525,7 @@ compute_ai_elec_frag_grad(struct efp *efp, size_t frag_idx)
 	vec_t force, add_i, add_j, force_, add_i_, add_j_;
 
 	for (size_t i = 0; i < efp->n_ptc; i++) {
-		/* ab initio atom - fragment atoms */
+		/* ab initio atom - fragment atoms
 		for (size_t k = 0; k < fr_j->n_atoms; k++) {
 			struct efp_atom *at_j = fr_j->atoms + k;
 			vec_t dr = vec_sub(CVEC(at_j->x), efp->ptc_xyz + i);
@@ -586,7 +535,7 @@ compute_ai_elec_frag_grad(struct efp *efp, size_t frag_idx)
 			vec_atomic_add(efp->ptc_grad + i, &force);
 			efp_sub_force(efp->grad + frag_idx, CVEC(fr_j->x),
 			    CVEC(at_j->x), &force, &add_j);
-		}
+		} */
 
 		/* ab initio atom - fragment multipoles */
 		for (size_t k = 0; k < fr_j->n_multipole_pts; k++) {
@@ -598,29 +547,38 @@ compute_ai_elec_frag_grad(struct efp *efp, size_t frag_idx)
 			add_j = vec_zero;
 
 			/* monopole */
-			efp_charge_charge_grad(efp->ptc[i], pt_j->monopole, &dr,
-			    &force_, &add_i_, &add_j_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+			if (pt_j->if_mon || pt_j->if_znuc) {
+			    double qj = pt_j->monopole + pt_j->znuc;
+                efp_charge_charge_grad(efp->ptc[i], qj, &dr,
+                                       &force_, &add_i_, &add_j_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* dipole */
-			efp_charge_dipole_grad(efp->ptc[i], &pt_j->dipole, &dr,
-			    &force_, &add_i_, &add_j_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+			if (pt_j->if_dip) {
+                efp_charge_dipole_grad(efp->ptc[i], &pt_j->dipole, &dr,
+                                       &force_, &add_i_, &add_j_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* quadrupole */
-			efp_charge_quadrupole_grad(efp->ptc[i],
-			    pt_j->quadrupole, &dr, &force_, &add_i_, &add_j_);
-			vec_negate(&add_j_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+            if (pt_j->if_quad) {
+                efp_charge_quadrupole_grad(efp->ptc[i],
+                                           pt_j->quadrupole, &dr, &force_, &add_i_, &add_j_);
+                vec_negate(&add_j_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			/* octupole */
-			efp_charge_octupole_grad(efp->ptc[i], pt_j->octupole,
-			    &dr, &force_, &add_i_, &add_j_);
-			add_3(&force, &force_, &add_i, &add_i_,
-			    &add_j, &add_j_);
+            if (pt_j->if_oct) {
+                efp_charge_octupole_grad(efp->ptc[i], pt_j->octupole,
+                                         &dr, &force_, &add_i_, &add_j_);
+                add_3(&force, &force_, &add_i, &add_i_,
+                      &add_j, &add_j_);
+            }
 
 			vec_atomic_add(efp->ptc_grad + i, &force);
 			efp_sub_force(efp->grad + frag_idx, CVEC(fr_j->x),
