@@ -7,11 +7,9 @@ molecular systems by replacing chemically inert part of a system by a set of
 Effective Fragments while performing regular _ab initio_ calculation on the
 chemically active part [1-8]. The LIBEFP library is a full implementation of
 the EFP method. It allows users to easily incorporate EFP support into their
-favourite quantum chemistry package. LIBEFP is used by many major quantum
-chemistry packages, such as [Q-Chem](http://www.q-chem.com),
-[PSI4](http://www.psicode.org), [NWChem](http://www.nwchem-sw.org),
-[GAMESS](http://www.msg.ameslab.gov/GAMESS),
-[Molcas](https://gitlab.com/Molcas), and others.
+favourite quantum chemistry package. 
+LIBEFP is interfaced to [Q-Chem](http://www.q-chem.com) and
+[PSI4](http://www.psicode.org) for QM/EFP calculations.
 
 Detailed description of methods and algorithms can be found in two LIBEFP
 papers:
