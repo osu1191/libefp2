@@ -41,7 +41,7 @@ extern "C" {
 #endif
 
 /** Version string. */
-#define LIBEFP_VERSION_STRING "1.7.2"
+#define LIBEFP_VERSION_STRING "1.8.0"
 
 /** Result of an operation. */
 enum efp_result {
