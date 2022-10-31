@@ -1415,6 +1415,36 @@ efp_get_frag_multipole_count(struct efp *efp, size_t frag_idx, size_t *n_mult)
 	return EFP_RESULT_SUCCESS;
 }
 
+/*
+EFP_EXPORT enum efp_result
+efp_get_frag_rank(struct efp *efp, size_t frag_idx, size_t *rank)
+{
+    assert(efp);
+    assert(rank);
+    assert(frag_idx < efp->n_frag);
+
+    struct frag *frag = efp->frags + frag_idx;
+
+    *rank = 0;
+    for (size_t i=0; i<frag->n_multipole_pts; i++) {
+        struct multipole_pt *pt = frag->multipole_pts + i;
+        size_t rank_tmp = 0;
+        if (pt->if_dip)
+            rank_tmp = 1;
+        if (pt->if_quad)
+            rank_tmp = 2;
+        if (pt->if_oct)
+            rank_tmp = 3;
+        if (rank_tmp > *rank)
+            *rank = rank_tmp;
+        if (*rank == 3)
+            break;
+    }
+
+    return EFP_RESULT_SUCCESS;
+}
+*/
+
 EFP_EXPORT enum efp_result
 efp_get_frag_rank(struct efp *efp, size_t frag_idx, size_t *rank)
 {
@@ -1634,7 +1664,6 @@ efp_get_induced_dipole_conj_values(struct efp *efp, double *dip)
 
     for (size_t i = 0; i < efp->n_frag; i++) {
         struct frag *frag = efp->frags + i;
-
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
             struct polarizable_pt *pt = frag->polarizable_pts + j;
 
@@ -2465,7 +2494,6 @@ print_frag_info(struct efp *efp, size_t frag_index) {
     }
 
     print_ligand(efp, frag_index);
-
     printf("\n");
 }
 

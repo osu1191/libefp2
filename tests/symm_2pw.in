@@ -1,4 +1,4 @@
-run_type etest
+run_type sp
 ref_energy -2.4694268198
 coord points
 terms elec pol disp xr
@@ -14,7 +14,7 @@ swf_cutoff 11
 periodic_box 24.0048 27.0356 25.7166 90.0 109.424 90.0 
 symmetry true
 symm_frag frag
-
+print 1
 
  fragment  XXII_exp_N2_1_L
 -6.509027 -0.703872 4.315925

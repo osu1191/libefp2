@@ -848,6 +848,16 @@ enum efp_result efp_get_frag_multipole_coord(struct efp *efp, size_t frag_idx,
  * (0 - charge, 1 - dipole, 2 - quad, 3 - oct)
  * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
+// enum efp_result efp_get_frag_mult_rank(struct efp *efp, size_t frag_idx, size_t mult_idx, size_t *rank);
+
+/**
+ * Computes multipole rank of a fragment
+ * @param efp
+ * @param[in] frag_idx fragment index
+ * @param[out] rank Highest rank of multipoles in the fragment
+ * (0 - charge, 1 - dipole, 2 - quad, 3 - oct)
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
 enum efp_result
 efp_get_frag_rank(struct efp *efp, size_t frag_idx, size_t *rank);
 
@@ -1480,7 +1490,6 @@ void print_ene(struct efp_energy *energy);
  * @param efp
  */
 void print_energies(struct efp *efp);
-
 
 #ifdef __cplusplus
 } /* extern "C" */
