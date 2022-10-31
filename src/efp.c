@@ -502,6 +502,9 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
 
 	(void)data;
 
+	// ligand is a fragment (not QM)
+	bool if_pairwise = efp->opts.enable_pairwise && efp->opts.ligand > -1;
+
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic) reduction(+:e_elec,e_disp,e_xr,e_cp)
 #endif
@@ -533,7 +536,7 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
                         e_cp += ecp;
 
                         /* */
-                        if (efp->opts.enable_pairwise) {
+                        if (if_pairwise) {
                             if (i == efp->ligand_index) {
                                 efp->pair_energies[fr_j].exchange_repulsion = exr;
                                 efp->pair_energies[fr_j].charge_penetration = ecp;
@@ -547,11 +550,10 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
                 }
 				if (do_elec(&efp->opts) && efp->frags[i].n_multipole_pts > 0 &&
 				    efp->frags[fr_j].n_multipole_pts > 0) {
-					e_elec_tmp = efp_frag_frag_elec(efp,
-					    i, fr_j);
+					e_elec_tmp = efp_frag_frag_elec(efp, i, fr_j);
 					e_elec += e_elec_tmp;
 					/* */
-					if (efp->opts.enable_pairwise) {
+					if (if_pairwise) {
                         if (i == efp->ligand_index)
                             efp->pair_energies[fr_j].electrostatic = e_elec_tmp;                       
                         if (fr_j == efp->ligand_index)
@@ -564,7 +566,7 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
 					    i, fr_j, s, ds);
 					e_disp += e_disp_tmp;
 					/* */
-					if (efp->opts.enable_pairwise) {
+					if (if_pairwise) {
                         if (i == efp->opts.ligand) 
                             efp->pair_energies[fr_j].dispersion = e_disp_tmp;                       
                         if (fr_j == efp->opts.ligand) 
@@ -582,6 +584,12 @@ compute_two_body_range(struct efp *efp, size_t frag_from, size_t frag_to,
 	efp->energy.dispersion += e_disp;
 	efp->energy.exchange_repulsion += e_xr;
 	efp->energy.charge_penetration += e_cp;
+
+    if (efp->opts.print > 0) {
+        printf(" In compute_two_body_range() \n");
+        print_ene(&efp->energy);
+        print_energies(efp);
+    }
 }
 
 EFP_EXPORT enum efp_result
@@ -1208,18 +1216,6 @@ efp_prepare(struct efp *efp)
 		efp->n_polarizable_pts += efp->frags[i].n_polarizable_pts;
 	}
 
-	/*
-	efp->n_fragment_field_pts = 0;
-	if (efp->opts.enable_pairwise && efp->opts.ligand != -1) {
-		size_t ligand_idx = efp->opts.ligand;
-		for (size_t i = 0; i < efp->n_frag; i++) {
-			efp->frags[i].fragment_field_offset = efp->n_fragment_field_pts;
-			efp->n_fragment_field_pts += efp->frags[ligand_idx].n_polarizable_pts;
-		}
-	}
-	efp->fragment_field = (vec_t *)calloc(efp->n_fragment_field_pts, sizeof(vec_t));
-*/
-
 	efp->grad = (six_t *)calloc(efp->n_frag, sizeof(six_t));
 	efp->skiplist = (char *)calloc(efp->n_frag * efp->n_frag, 1);
 	efp->pair_energies = (struct efp_energy *)calloc(efp->n_frag, sizeof(struct efp_energy));
@@ -1421,38 +1417,28 @@ efp_get_frag_multipole_count(struct efp *efp, size_t frag_idx, size_t *n_mult)
 
 /*
 EFP_EXPORT enum efp_result
-efp_get_frag_mult_rank(struct efp *efp, size_t frag_idx, size_t mult_idx, size_t *rank)
+efp_get_frag_rank(struct efp *efp, size_t frag_idx, size_t *rank)
 {
     assert(efp);
     assert(rank);
     assert(frag_idx < efp->n_frag);
-    assert(mult_idx < efp->frags[frag_idx].n_multipole_pts);
 
     struct frag *frag = efp->frags + frag_idx;
-    struct multipole_pt *pt = frag->multipole_pts + mult_idx;
 
-    *rank = -1;
-
-    for (size_t t = 0; t < 10; t++)
-        if (pt->octupole[t] != 0) {
-            *rank = 3;
-            return EFP_RESULT_SUCCESS;
-        }
-
-    for (size_t t = 0; t < 6; t++)
-        if (pt->quadrupole[t] != 0) {
-            *rank = 2;
-            return EFP_RESULT_SUCCESS;
-        }
-
-    if (pt->dipole.x != 0 || pt->dipole.y != 0 || pt->dipole.z != 0) {
-        *rank = 1;
-        return EFP_RESULT_SUCCESS;
-    }
-
-    if (pt->monopole != 0) {
-        *rank = 0;
-        return EFP_RESULT_SUCCESS;
+    *rank = 0;
+    for (size_t i=0; i<frag->n_multipole_pts; i++) {
+        struct multipole_pt *pt = frag->multipole_pts + i;
+        size_t rank_tmp = 0;
+        if (pt->if_dip)
+            rank_tmp = 1;
+        if (pt->if_quad)
+            rank_tmp = 2;
+        if (pt->if_oct)
+            rank_tmp = 3;
+        if (rank_tmp > *rank)
+            *rank = rank_tmp;
+        if (*rank == 3)
+            break;
     }
 
     return EFP_RESULT_SUCCESS;
@@ -1678,7 +1664,6 @@ efp_get_induced_dipole_conj_values(struct efp *efp, double *dip)
 
     for (size_t i = 0; i < efp->n_frag; i++) {
         struct frag *frag = efp->frags + i;
-
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
             struct polarizable_pt *pt = frag->polarizable_pts + j;
 
@@ -1836,7 +1821,6 @@ efp_shutdown(struct efp *efp)
 	free(efp->ai_orbital_energies);
 	free(efp->ai_dipole_integrals);
 	free(efp->skiplist);
-	// free(efp->fragment_field);
 	free(efp->pair_energies);
     free(efp->symmlist);
 	free(efp);
@@ -2008,27 +1992,6 @@ efp_create(void)
 }
 
 EFP_EXPORT enum efp_result
-efp_set_electron_density_field_fn(struct efp *efp,
-    efp_electron_density_field_fn fn)
-{
-	assert(efp);
-
-	efp->get_electron_density_field = fn;
-
-	return EFP_RESULT_SUCCESS;
-}
-
-EFP_EXPORT enum efp_result
-efp_set_electron_density_field_user_data(struct efp *efp, void *user_data)
-{
-	assert(efp);
-
-	efp->get_electron_density_field_user_data = user_data;
-
-	return EFP_RESULT_SUCCESS;
-}
-
-EFP_EXPORT enum efp_result
 efp_get_frag_count(struct efp *efp, size_t *n_frag)
 {
 	assert(efp);
@@ -2181,6 +2144,65 @@ efp_get_frag_mult_pt(struct efp *efp, size_t frag_idx, size_t pt_idx,
 
     return EFP_RESULT_SUCCESS;
 }
+
+EFP_EXPORT enum efp_result
+efp_get_frag_pol_pt(struct efp *efp, size_t frag_idx, size_t pt_idx,
+                     struct efp_pol_pt *pol_pt)
+{
+    assert(efp);
+    assert(pol_pt);
+    assert(frag_idx < efp->n_frag);
+    assert(pt_idx < efp->frags[frag_idx].n_polarizable_pts);
+
+    struct frag *frag;
+    frag = efp->frags + frag_idx;
+    struct polarizable_pt *pt;
+    pt = frag->polarizable_pts + pt_idx;
+
+    pol_pt->x = pt->x;
+    pol_pt->y = pt->y;
+    pol_pt->z = pt->z;
+    pol_pt->indip[0] = pt->indip.x;
+    pol_pt->indip[1] = pt->indip.y;
+    pol_pt->indip[2] = pt->indip.z;
+    pol_pt->indipconj[0] = pt->indipconj.x;
+    pol_pt->indipconj[1] = pt->indipconj.y;
+    pol_pt->indipconj[2] = pt->indipconj.z;
+    pol_pt->indip_gs[0] = pt->indip_gs.x;
+    pol_pt->indip_gs[1] = pt->indip_gs.y;
+    pol_pt->indip_gs[2] = pt->indip_gs.z;
+    pol_pt->indipconj_gs[0] = pt->indipconj_gs.x;
+    pol_pt->indipconj_gs[1] = pt->indipconj_gs.y;
+    pol_pt->indipconj_gs[2] = pt->indipconj_gs.z;
+    pol_pt->ai_field[0] = pt->elec_field_wf.x;
+    pol_pt->ai_field[1] = pt->elec_field_wf.y;
+    pol_pt->ai_field[2] = pt->elec_field_wf.z;
+
+    return EFP_RESULT_SUCCESS;
+}
+
+EFP_EXPORT enum efp_result
+save_ai_field_pol_pt(struct efp *efp, struct efp_pol_pt *pol_pt, size_t frag_idx, size_t pt_idx) {
+    assert(efp);
+    assert(pol_pt);
+    assert(frag_idx < efp->n_frag);
+    assert(pt_idx < efp->frags[frag_idx].n_polarizable_pts);
+
+    struct frag *frag;
+    frag = efp->frags + frag_idx;
+    struct polarizable_pt *pt;
+    pt = frag->polarizable_pts + pt_idx;
+
+    pt->elec_field_wf.x = pol_pt->ai_field[0];
+    pt->elec_field_wf.y = pol_pt->ai_field[1];
+    pt->elec_field_wf.z = pol_pt->ai_field[2];
+
+    if (efp->opts.print > 1)
+        print_pol_pt(efp,frag_idx,pt_idx);
+
+    return EFP_RESULT_SUCCESS;
+}
+
 
 EFP_EXPORT void
 efp_torque_to_derivative(const double *euler, const double *torque,
@@ -2437,6 +2459,8 @@ print_pol_pt(struct efp *efp, size_t frag_index, size_t pol_index) {
     printf(" conjugated induced dipole     %lf %lf %lf\n", pt->indipconj.x, pt->indipconj.y, pt->indipconj.z);
     printf(" old induced dipole            %lf %lf %lf\n", pt->indip_old.x, pt->indip_old.y, pt->indip_old.z);
     printf(" old conjugated induced dipole %lf %lf %lf\n", pt->indipconj_old.x, pt->indipconj_old.y, pt->indipconj_old.z);
+    printf(" gr state induced dipole       %lf %lf %lf\n", pt->indip_gs.x, pt->indip_gs.y, pt->indip_gs.z);
+    printf(" gr state conjug induced dipole %lf %lf %lf\n", pt->indipconj_gs.x, pt->indipconj_gs.y, pt->indipconj_gs.z);
 
     printf("\n");
 }
@@ -2470,17 +2494,6 @@ print_frag_info(struct efp *efp, size_t frag_index) {
     }
 
     print_ligand(efp, frag_index);
-
-    for (int i=0; i < fr->n_multipole_pts; i++) {
-        struct efp_mult_pt *pt;
-        pt = (struct efp_mult_pt *)malloc(sizeof(struct efp_mult_pt));
-
-        efp_get_frag_mult_pt(efp, frag_index, i, pt);
-        print_efp_mult_pt(pt);
-
-        free(pt);
-    }
-
     printf("\n");
 }
 
@@ -2496,5 +2509,48 @@ print_efp_mult_pt(struct efp_mult_pt *pt) {
            pt->octupole[0], pt->octupole[1], pt->octupole[2], pt->octupole[3], pt->octupole[4],
            pt->octupole[5], pt->octupole[6], pt->octupole[7], pt->octupole[8], pt->octupole[9]);
     printf(" screen0 = %lf, if_screen0 = %s\n", pt->screen0, pt->if_screen ? "true" : "false");
+    printf("\n");
+}
+
+void
+print_efp_pol_pt(struct efp_pol_pt *pt) {
+    printf("\n Polarizability point \n");
+    printf(" Coordinates                    %lf %lf %lf\n", pt->x, pt->y, pt->z);
+    printf(" induced dipole                 %lf %lf %lf\n", pt->indip[0], pt->indip[1], pt->indip[2]);
+    printf(" conjug induced dipole          %lf %lf %lf\n", pt->indipconj[0], pt->indipconj[1], pt->indipconj[2]);
+    printf(" gr state induced dipole        %lf %lf %lf\n", pt->indip_gs[0], pt->indip_gs[1], pt->indip_gs[2]);
+    printf(" gr state conjug induced dipole %lf %lf %lf\n", pt->indipconj_gs[0], pt->indipconj_gs[1], pt->indipconj_gs[2]);
+    printf(" AI field                       %lf %lf %lf\n", pt->ai_field[0], pt->ai_field[1], pt->ai_field[2]);
+    printf("\n");
+}
+
+void print_ene(struct efp_energy *energy) {
+
+    printf(" EFP ENERGY COMPONENTS \n");
+
+    printf(" ELECTROSTATIC ENERGY          %lf \n", energy->electrostatic);
+    printf(" AI ELECTROSTATIC ENERGY       %lf \n", energy->ai_electrostatic);
+    printf(" CHARGE PENETRATION ENERGY     %lf \n", energy->charge_penetration);
+    printf(" POINT CHARGES ENERGY          %lf \n", energy->electrostatic_point_charges);
+    printf(" POLARIZATION ENERGY           %lf \n", energy->polarization);
+    printf(" EXC STATE POLARIZATION ENERGY %lf \n", energy->exs_polarization);
+    printf(" AI POLARIZATION ENERGY        %lf \n", energy->ai_polarization);
+    printf(" DISPERSION ENERGY             %lf \n", energy->dispersion);
+    printf(" AI DISPERSION ENERGY          %lf \n", energy->ai_dispersion);
+    printf(" EXCHANGE-REPULSION ENERGY     %lf \n", energy->exchange_repulsion);
+    double ene_sum = energy->electrostatic + energy->charge_penetration +
+                     energy->electrostatic_point_charges + energy->polarization +
+                     energy->dispersion + energy->exchange_repulsion;
+    printf(" SUM ENERGY                    %lf \n", ene_sum);
+    printf(" TOTAL ENERGY                  %lf \n", energy->total);
+    printf("\n");
+}
+
+void print_energies(struct efp *efp) {
+    printf(" --- PAIRWISE ENERGIES --- \n");
+    for (size_t i=0; i<efp->n_frag; i++) {
+        printf(" PAIR ENERGY on FRAGMENT %d %s \n", i, efp->frags[i].name);
+        print_ene(&efp->pair_energies[i]);
+    }
     printf("\n");
 }

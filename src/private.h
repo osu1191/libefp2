@@ -64,12 +64,14 @@ struct polarizable_pt {
 	double x, y, z;
 	mat_t tensor;
 	vec_t elec_field;
-	vec_t elec_field_wf;
+	vec_t elec_field_wf;  // electric field due to wavefunction of the QM region in the current state
 	vec_t ligand_field;   // field due to ligand
-	vec_t indip;
-	vec_t indip_old;
+	vec_t indip;          // current induced dipole for the current electronic state
+	vec_t indip_old;      // previous induced dipole for the current electronic state
 	vec_t indipconj;
 	vec_t indipconj_old;
+    vec_t indip_gs;      // induced dipole for the ground electronic state
+    vec_t indipconj_gs;  // induced dipole for the ground electronic state
 };
 
 /* polarizable point on a ligand to store fields due to other fragments */
@@ -224,12 +226,6 @@ struct efp {
 
     /* ligand index in fragment list */
     size_t ligand_index;
-
-    /* callback which computes electric field from electrons */
-	efp_electron_density_field_fn get_electron_density_field;
-
-	/* user data for get_electron_density_field */
-	void *get_electron_density_field_user_data;
 
 	/* user parameters for this EFP computation */
 	struct efp_opts opts;

@@ -46,6 +46,10 @@ static void init_multipole_pt(struct multipole_pt *pt) {
     pt->if_scr0 = false;
 }
 
+static void init_pol_pt(struct polarizable_pt *pt) {
+    memset(pt, 0, sizeof(*pt));
+}
+
 static int
 tok(struct stream *stream, const char *id)
 {
@@ -464,6 +468,8 @@ parse_polarizable_pts(struct frag *frag, struct stream *stream)
 
 		struct polarizable_pt *pt =
 		    frag->polarizable_pts + frag->n_polarizable_pts - 1;
+		// zero out all entries
+        init_pol_pt(pt);
 
 		if (!efp_stream_advance(stream, 4)){
             efp_log("parse_polarizable_pts() failure");

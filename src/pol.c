@@ -38,12 +38,6 @@
 double efp_get_pol_damp_tt(double, double, double);
 enum efp_result efp_compute_id_direct(struct efp *);
 
-struct id_work_data {
-	double conv;
-	vec_t *id_new;
-	vec_t *id_conj_new;
-};
-
 double
 efp_get_pol_damp_tt(double r, double pa, double pb)
 {
@@ -279,49 +273,6 @@ get_ligand_field(const struct efp *efp, size_t frag_idx, size_t pt_idx, int liga
     return elec_field;
 }
 
-static enum efp_result
-add_electron_density_field(struct efp *efp)
-{
-	enum efp_result res;
-	vec_t *xyz, *field;
-
-	if (efp->get_electron_density_field == NULL)
-		return EFP_RESULT_SUCCESS;
-
-	xyz = (vec_t *)malloc(efp->n_polarizable_pts * sizeof(vec_t));
-	field = (vec_t *)malloc(efp->n_polarizable_pts * sizeof(vec_t));
-
-	for (size_t i = 0, idx = 0; i < efp->n_frag; i++) {
-		struct frag *frag = efp->frags + i;
-
-		for (size_t j = 0; j < frag->n_polarizable_pts; j++, idx++) {
-			struct polarizable_pt *pt = frag->polarizable_pts + j;
-
-			xyz[idx].x = pt->x;
-			xyz[idx].y = pt->y;
-			xyz[idx].z = pt->z;
-		}
-	}
-
-	if ((res = efp->get_electron_density_field(efp->n_polarizable_pts,
-	    (const double *)xyz, (double *)field,
-	    efp->get_electron_density_field_user_data)))
-		goto error;
-
-	for (size_t i = 0, idx = 0; i < efp->n_frag; i++) {
-		struct frag *frag = efp->frags + i;
-
-		for (size_t j = 0; j < frag->n_polarizable_pts; j++, idx++) {
-			struct polarizable_pt *pt = frag->polarizable_pts + j;
-			pt->elec_field_wf = field[idx];
-		}
-	}
-error:
-	free(xyz);
-	free(field);
-	return res;
-}
-
 static void
 compute_elec_field_range(struct efp *efp, size_t from, size_t to, void *data)
 {
@@ -381,38 +332,22 @@ compute_fragment_field_range(struct efp *efp, size_t from, size_t to, void *data
 }
 
 static enum efp_result
-compute_elec_field(struct efp *efp)
-{
-    int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand != -1) ? 1 : 0;
+compute_elec_field(struct efp *efp) {
+
     enum efp_result res;
 
     efp_balance_work(efp, compute_elec_field_range, NULL);
 
-	// WARNING!!! Should it be if(efp->opts.enable_pairwise) instead ???
-	if (do_pairwise) {
+	if (efp->opts.enable_pairwise) {
 		// this is field due to ligand on a fragment point
+		// for QM ligand this is a field due to QM nuclei
 		efp_balance_work(efp, compute_ligand_field_range, NULL);
+		// no contribution if ligand is QM
         if (efp->opts.ligand != -1) {
             // this is field due to fragment(s) on ligand points
             efp_balance_work(efp, compute_fragment_field_range, NULL);
         }
 	}
-
-	// IS THIS OPENMP NEEDED HERE???
-#ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic)
-#endif
-    for (size_t i = 0; i < efp->n_frag; i++) {
-        struct frag *frag = efp->frags + i;
-        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
-            frag->polarizable_pts[j].elec_field_wf = vec_zero;
-        }
-    }
-
-	if (efp->opts.terms & EFP_TERM_AI_POL) {
-        if ((res = add_electron_density_field(efp)))
-            return res;
-    }
 
 	return EFP_RESULT_SUCCESS;
 }
@@ -549,6 +484,25 @@ zero_ind_dipoles(struct efp *efp, size_t from, size_t to, void *data)
             pt->indipconj = vec_zero;
             pt->indip_old = vec_zero;
             pt->indipconj_old = vec_zero;
+        }
+    }
+}
+
+static void
+copy_indip_gs(struct efp *efp, size_t from, size_t to, void *data)
+{
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for (size_t i = from; i < to; i++) {
+        struct frag *frag = efp->frags + i;
+
+        for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
+            struct polarizable_pt *pt = frag->polarizable_pts + j;
+
+            pt->indip_gs = pt->indip;
+            pt->indipconj_gs = pt->indipconj;
         }
     }
 }
@@ -725,12 +679,12 @@ static void
 compute_energy_range(struct efp *efp, size_t from, size_t to, void *data)
 {
 	double energy = 0.0;
-    // double energy1 = 0.0;
-    // double energy2 = 0.0;
-    int do_pairwise = (efp->opts.enable_pairwise && efp->opts.ligand > -1) ? 1 : 0;
+
+    // if_pairwise tells whether pairwise calculations with EFP (not QM) ligand
+    bool if_pairwise = efp->opts.enable_pairwise && efp->opts.ligand > -1;
 
     struct ligand *ligand;
-	if (do_pairwise)
+	if (if_pairwise)
         ligand = efp->ligand;
 
 #ifdef _OPENMP
@@ -738,47 +692,50 @@ compute_energy_range(struct efp *efp, size_t from, size_t to, void *data)
 #endif
     for (size_t i = from; i < to; i++) {
         struct frag *frag = efp->frags + i;
-        double ene1 = 0.0, ene2 = 0.0;
-        // zeroing out polarization pair energies to avoid possible double counting for excited states
+
+        // zeroing out polarization pair energies is a must
         efp->pair_energies[i].polarization = 0.0;
+
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
             struct polarizable_pt *pt = frag->polarizable_pts + j;
 
             energy += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf) -
                       0.5 * vec_dot(&pt->indip, &pt->elec_field);
 
-            // energy1 += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
-            // energy2 += -0.5 * vec_dot(&pt->indip, &pt->elec_field);
-
-            //  !!!! WARNING !!! DOES IT WORK FOR QM LIGAND ????
-            if (efp->opts.enable_pairwise && i != efp->opts.ligand) {
-                efp->pair_energies[i].polarization +=
-                        - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
-                ene2 += - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
-            }
+            // This part is for non-QM ligand only
+            // Interaction of indip on this fragment with ligand's field on this fragment
+            if (if_pairwise)
+                if (i != efp->ligand_index)
+                    efp->pair_energies[i].polarization += - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
 
             // ligand is a QM region
+            // all fragments get contributions due to interaction with QM wavefunction and QM nuclei
+            // (ligand field contains field due to QM nuclei in the case of QM ligand)
             if (efp->opts.enable_pairwise && efp->opts.ligand == -1) {
-                efp->pair_energies[i].polarization +=
-                        0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
-                // ene1 += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
+                efp->pair_energies[i].polarization += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
+                efp->pair_energies[i].polarization += -0.5 * vec_dot(&pt->indip, &pt->ligand_field);
             }
         }
 
-        //  !!!! WARNING !!! DOES IT WORK FOR QM LIGAND ????
-        if (do_pairwise &&  i != efp->opts.ligand) {
-            for (size_t lp = 0; lp < ligand->n_ligand_pts; lp++) {
-                struct ligand_pt *lpt = ligand->ligand_pts + lp;
-                struct polarizable_pt *pt = ligand->ligand_frag->polarizable_pts + lp;
+        // this part is for non-QM ligand only
+        // interaction of ligand indip with the field due to this fragment
+        if (if_pairwise)
+            if ( i != efp->ligand_index )
+                for (size_t lp = 0; lp < ligand->n_ligand_pts; lp++) {
+                    struct ligand_pt *lpt = ligand->ligand_pts + lp;
+                    struct polarizable_pt *pt = ligand->ligand_frag->polarizable_pts + lp;
 
-                efp->pair_energies[i].polarization +=
-                        - 0.5 * vec_dot(&pt->indip, &lpt->fragment_field[i]);
-            }
-        }
-        //printf("\n frag %d, pol pair energy1 = %lf", i, efp->pair_energies[i].polarization);
+                    efp->pair_energies[i].polarization +=
+                            - 0.5 * vec_dot(&pt->indip, &lpt->fragment_field[i]);
+                }
     }
 
-	*(double *)data += energy;
+    if (efp->opts.print > 1 && efp->opts.enable_pairwise) {
+        printf("\n Pairwise analysis from compute_energy_range() follows \n");
+        print_energies(efp);
+    }
+
+    *(double *)data += energy;
 }
 
 static void
@@ -786,13 +743,15 @@ compute_energy_correction_range(struct efp *efp, size_t from, size_t to, void *d
 {
     double energy = 0.0;
 
+    // tells whether pairwise analysis with non-QM ligand
+    bool if_pairwise = efp->opts.enable_pairwise && efp->opts.ligand > -1;
+
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic) reduction(+:energy)
 #endif
-
     for (size_t i = from; i < to; i++) {
         struct frag *frag = efp->frags + i;
-        // zeroing out polarization pair energies to avoid possible double counting for excited states
+        // zeroing out polarization pair energies to avoid double-counting for excited states
         efp->pair_energies[i].exs_polarization = 0.0;
         for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
             struct polarizable_pt *pt = frag->polarizable_pts + j;
@@ -800,27 +759,31 @@ compute_energy_correction_range(struct efp *efp, size_t from, size_t to, void *d
             energy += 0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf) -
                       0.5 * vec_dot(&pt->indip, &pt->elec_field);
 
-            vec_t vec1 = vec_sub(&pt->indipconj,&pt->indipconj_old);
-            vec_t vec2 = vec_sub(&pt->indip, &pt->indip_old);
+            vec_t vec1 = vec_sub(&pt->indipconj,&pt->indipconj_gs);
+            vec_t vec2 = vec_sub(&pt->indip, &pt->indip_gs);
             vec_t ddip = vec_add(&vec1, &vec2);
 
             energy -= 0.5 * vec_dot( &ddip, &pt->elec_field_wf);
 
-            if (efp->opts.enable_pairwise && i != efp->opts.ligand) {
-                efp->pair_energies[i].exs_polarization +=
-                        - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
-            }
+            // non-QM ligand. Is this part ever used?
+            if (if_pairwise)
+                if (i != efp->ligand_index)
+                    efp->pair_energies[i].exs_polarization +=
+                            - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
 
             // ligand is a QM region
+            // contributions due to excited state wavefunction and QM nuclei
             if (efp->opts.enable_pairwise && efp->opts.ligand == -1) {
                 efp->pair_energies[i].exs_polarization +=
                         0.5 * vec_dot(&pt->indipconj, &pt->elec_field_wf);
                 efp->pair_energies[i].exs_polarization -=
                         0.5 * vec_dot(&ddip, &pt->elec_field_wf);
+                efp->pair_energies[i].exs_polarization +=
+                        - 0.5 * vec_dot(&pt->indip, &pt->ligand_field);
             }
         }
+        // subtract ground state polarization contributions
         efp->pair_energies[i].exs_polarization -= efp->pair_energies[i].polarization;
-        //printf("\n frag %d, pol pair = %lf, exc pair = %lf", i, efp->pair_energies[i].polarization, efp->pair_energies[i].exs_polarization);
     }
 
     *(double *)data += energy;
@@ -907,22 +870,11 @@ efp_compute_pol_energy(struct efp *efp, double *energy)
 	assert(energy);
 
 	// counter to know when to zero out induced dipoles and static field
+	// need to be explored further
 	static int counter = 0;
 
-    // return true (to zero out induced dipoles) only when efp_compute_pol_energy is called
-    // the very first time
-    // do not zero induced dipoles in md, optimization, qm scf iterations etc...
-    if ( if_clean_indip(efp, counter) ) {
-        efp_balance_work(efp, zero_ind_dipoles, NULL);
-    }
-
-    // return true (to zero out static fields
-    // the very first time
     // think how to skip recomputing static field in qm scf iterations
     // check on efp->do_gradient breaks gtests...
-    if ( if_clean_field(efp, counter) )
-        efp_balance_work(efp, zero_static_field, NULL);
-
     if ((res = compute_elec_field(efp)))
         return res;
 
@@ -951,6 +903,8 @@ efp_compute_pol_energy(struct efp *efp, double *energy)
 	efp_balance_work(efp, compute_energy_range, energy);
 	efp_allreduce(energy, 1);
 
+    efp_balance_work(efp, copy_indip_gs, NULL);
+
 	counter++;
 
     return EFP_RESULT_SUCCESS;
@@ -963,12 +917,9 @@ efp_compute_pol_correction(struct efp *efp, double *energy)
 
     assert(energy);
 
-    //efp->energy.gs_polarization = efp->energy.polarization;
-    //memcpy(efp->indip_old, efp->indip, efp->n_polarizable_pts * sizeof(vec_t));
-    //memcpy(efp->indipconj_old, efp->indipconj, efp->n_polarizable_pts * sizeof(vec_t));
-
-    if ((res = compute_elec_field(efp)))
-        return res;
+    // do not need to recompute static field for excited state correction
+    //if ((res = compute_elec_field(efp)))
+    //    return res;
 
     switch (efp->opts.pol_driver) {
         case EFP_POL_DRIVER_ITERATIVE:
@@ -1001,20 +952,8 @@ efp_compute_pol_energy_crystal(struct efp *efp, double *energy)
     // counter to know when to zero out induced dipoles and static field
     static int counter_crystal = 0;
 
-    // return true (to zero out induced dipoles) only when efp_compute_pol_energy is called
-    // the very first time
-    // do not zero induced dipoles in md, optimization, qm scf iterations etc...
-    if ( if_clean_indip(efp, counter_crystal) ) {
-        efp_balance_work(efp, zero_ind_dipoles, NULL);
-    }
-
-    // return true (to zero out static fields
-    // the very first time
     // think how to skip recomputing static field in qm scf iterations
     // check on efp->do_gradient breaks gtests...
-    if ( if_clean_field(efp, counter_crystal) )
-        efp_balance_work(efp, zero_static_field, NULL);
-
     if (res = compute_elec_field_crystal(efp))
         return res;
 

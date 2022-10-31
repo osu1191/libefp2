@@ -41,7 +41,7 @@ extern "C" {
 #endif
 
 /** Version string. */
-#define LIBEFP_VERSION_STRING "1.7.2"
+#define LIBEFP_VERSION_STRING "1.8.0"
 
 /** Result of an operation. */
 enum efp_result {
@@ -250,6 +250,18 @@ struct efp_mult_pt {
     bool if_screen; /**< If screen0 parameter exists and meaningful */
 };
 
+/** Polarizability point for working with external programs */
+struct efp_pol_pt {
+    double x;         /**< X coordinate */
+    double y;         /**< Y coordinate */
+    double z;         /**< Z coordinate */
+    double indip[3];  /**< induced dipole */
+    double indipconj[3];  /**< conjugated induced dipole */
+    double indip_gs[3];  /**< induced dipole of the ground electronic state*/
+    double indipconj_gs[3];  /**< conjugated induced dipole of the ground electronic state */
+    double ai_field[3]; /** < field due to QM wavefunction */
+};
+
 /**
  * Callback function which is called by libefp to obtain electric field in the
  * specified points.
@@ -272,8 +284,8 @@ struct efp_mult_pt {
  * \return The implemented function should return ::EFP_RESULT_FATAL on error
  * and ::EFP_RESULT_SUCCESS if the calculation has succeeded.
  */
-typedef enum efp_result (*efp_electron_density_field_fn)(size_t n_pt,
-    const double *xyz, double *field, void *user_data);
+//typedef enum efp_result (*efp_electron_density_field_fn)(size_t n_pt,
+//    const double *xyz, double *field, void *user_data);
 
 /**
  * Get a human readable banner string with information about the library.
@@ -408,8 +420,8 @@ enum efp_result efp_skip_fragments(struct efp *efp, size_t i, size_t j,
  *
  * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
-enum efp_result efp_set_electron_density_field_fn(struct efp *efp,
-    efp_electron_density_field_fn fn);
+// enum efp_result efp_set_electron_density_field_fn(struct efp *efp,
+//    efp_electron_density_field_fn fn);
 
 /**
  * Set user data to be passed to ::efp_electron_density_field_fn.
@@ -421,8 +433,8 @@ enum efp_result efp_set_electron_density_field_fn(struct efp *efp,
  *
  * \return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
-enum efp_result efp_set_electron_density_field_user_data(struct efp *efp,
-    void *user_data);
+// enum efp_result efp_set_electron_density_field_user_data(struct efp *efp,
+//    void *user_data);
 
 /**
  * Setup arbitrary point charges interacting with EFP subsystem.
@@ -829,15 +841,12 @@ enum efp_result efp_get_frag_multipole_coord(struct efp *efp, size_t frag_idx,
                                              size_t *n_mult);
 
 /**
- *
- * @param[in] efp The efp structure
- * @param[in] frag_idx Index of a fragment. Must be a value between zero and
- * the total number of fragments minus one.
- * @param[in] mult_idx Index of a multipole point. Must be a value between 0 and
- * the total number of multipoles in thios fragment minus one.
- * @param[out] rank Highest rank of multipole (0 - charge, 1 - dipole, 2 - quad, 3 - oct).
- * If all values are zero, rank = -1.
- * @return
+ * Computes multipole rank of a fragment
+ * @param efp
+ * @param[in] frag_idx fragment index
+ * @param[out] rank Highest rank of multipoles in the fragment
+ * (0 - charge, 1 - dipole, 2 - quad, 3 - oct)
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
  */
 // enum efp_result efp_get_frag_mult_rank(struct efp *efp, size_t frag_idx, size_t mult_idx, size_t *rank);
 
@@ -1252,6 +1261,29 @@ efp_get_frag_mult_pt(struct efp *efp, size_t frag_idx, size_t pt_idx,
                      struct efp_mult_pt *mult_pt);
 
 /**
+ *
+ * @param efp
+ * @param[in] frag_idx Fragment index
+ * @param[in] pt_idx Polarizability point index
+ * @param[out] pol_pt efp_pol_pt to be returned
+ * @return ::EFP_RESULT_SUCCESS on success or error code otherwise.
+ */
+enum efp_result
+efp_get_frag_pol_pt(struct efp *efp, size_t frag_idx, size_t pt_idx,
+                    struct efp_pol_pt *pol_pt);
+
+/**
+ * Saves ab initio field info from an efp_pol_pt structure into polarizable_pt on a fragment frag_idx
+ * @param efp
+ * @param pol_pt Polarization point
+ * @param frag_idx
+ * @param pt_idx
+ * @return
+ */
+enum efp_result
+save_ai_field_pol_pt(struct efp *efp, struct efp_pol_pt *pol_pt, size_t frag_idx, size_t pt_idx);
+
+/**
  * Get electric field for a point on a fragment.
  *
  * \param[in] efp The efp structure.
@@ -1440,6 +1472,24 @@ void print_frag_info(struct efp *efp, size_t frag_index);
  * @param pt
  */
 void print_efp_mult_pt(struct efp_mult_pt *pt);
+
+/**
+ * Prints information about efp_pol_pt object
+ * @param pt
+ */
+void print_efp_pol_pt(struct efp_pol_pt *pt);
+
+/**
+ * Prints all information of efp_energy structure
+ * @param energy
+ */
+void print_ene(struct efp_energy *energy);
+
+/**
+ * Prints all information of efp->pair_energies
+ * @param efp
+ */
+void print_energies(struct efp *efp);
 
 #ifdef __cplusplus
 } /* extern "C" */
