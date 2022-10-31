@@ -20,7 +20,7 @@ papers:
 ## Getting source code
 
 The latest release can be downloaded
-[here](https://github.com/ilyak/libefp/releases).
+[here](https://github.com/libefp2/libefp/releases).
 
 ## Installation
 
