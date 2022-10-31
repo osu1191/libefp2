@@ -507,3 +507,12 @@ Additionally to fragments a system can contain a set of point charges. They
 can be specified using the following format for each charge:
 
 	charge <q> <x> <y> <z>
+	
+##### Print additional information for debugging 
+
+`print <value>`
+
+Default value: `0`
+
+0 - standard output, 1 - more information, 2 - even more information.
+
