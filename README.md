@@ -18,7 +18,7 @@ papers:
 - [Kaliman and Slipchenko, JCC 2015](http://dx.doi.org/10.1002/jcc.23772)
 
 Documentation, tutorials, and a full EFP bibliography can be found at the official 
-[EFP website](https://libefp2.github.io/index.html)
+[EFP website](https://libefp2.github.io/index.html).
 
 ## Getting source code
 
@@ -74,7 +74,8 @@ the official [EFP website](https://libefp2.github.io/index.html).
 
 The description of public [LIBEFP API](https://libefp2.github.io/doxygen_html/index.html).
 
-Also see [this](interface/readme.txt) file for step-by-step instructions.
+Step-by-step instructions for interfacing LIBEFP to electronic structure codes are provided in 
+[QM/EFP interface](interface/readme.txt). 
 
 Fortran bindings to LIBEFP are available in
 [interface/efp.f90](interface/efp.f90).
@@ -112,6 +113,8 @@ replacing `$FRAGNAME` with your name of choice (e.g. rename `$FRAGNAME` to
 
 For a complete description of EFP data file format consult FRAGNAME section in
 GAMESS manual (see http://www.msg.ameslab.gov/gamess/).
+
+More information can be found in [How to create EFP parameters](https://libefp2.github.io/html/parameters.html).
 
 ## Information for code contributors
 
