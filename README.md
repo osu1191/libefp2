@@ -17,6 +17,9 @@ papers:
 - [Kaliman and Slipchenko, JCC 2013](http://dx.doi.org/10.1002/jcc.23375)
 - [Kaliman and Slipchenko, JCC 2015](http://dx.doi.org/10.1002/jcc.23772)
 
+Documentation, tutorials, and a full EFP bibliography can be found at the official 
+[EFP website](https://libefp2.github.io/index.html)
+
 ## Getting source code
 
 The latest release can be downloaded
@@ -66,9 +69,13 @@ For CMake instructions, see [README-cmake.md](README-cmake.md).
 
 ## Documentation
 
-The description of public LIBEFP API is available
-[here](https://libefp2.github.io/doxygen_html/index.html).
+For a detailed documentation, tutorials, and EFP bibliography check out 
+the official [EFP website](https://libefp2.github.io/index.html).
+
+The description of public [LIBEFP API](https://libefp2.github.io/doxygen_html/index.html).
+
 Also see [this](interface/readme.txt) file for step-by-step instructions.
+
 Fortran bindings to LIBEFP are available in
 [interface/efp.f90](interface/efp.f90).
 
