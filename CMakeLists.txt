@@ -24,6 +24,7 @@ option_with_flags(ENABLE_XHOST "Enable processor-specific optimization" ON "-xHo
 option_with_print(FRAGLIB_UNDERSCORE_L "Installed fragment library has names ending in _L. Psi4 wants OFF" ON)
 option_with_print(FRAGLIB_DEEP "Installed fragment libary has hierarchical, not flat, filestructure. Psi4 wants OFF" ON)
 option_with_print(INSTALL_DEVEL_HEADERS "Install additional namespaced devel headers beyond convenience efp.h" OFF)
+option_with_default(LIBEFP_CMAKECONFIG_INSTALL_DIR "Directory within CMAKE_INSTALL_PREFIX to which CMake configuration files installed" "share/cmake/libefp")
 
 ######################### Process & Validate Options ###########################
 include(autocmake_safeguards)
@@ -48,9 +49,15 @@ string(REGEX REPLACE "([^;]+)" "${src_prefix}\\1" sources_list "${raw_sources_li
 
 # STATIC/SHARED on below governed by BUILD_SHARED_LIBS
 add_library(efp ${sources_list})
-set_target_properties(efp PROPERTIES POSITION_INDEPENDENT_CODE ${BUILD_FPIC}
-				     COMPILE_FLAGS "-std=c99"
-				     SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR})
+set_target_properties(efp
+  PROPERTIES
+    POSITION_INDEPENDENT_CODE ${BUILD_FPIC}
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF
+    SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
+  )
+
 if(${BUILD_SHARED_LIBS})
     target_link_libraries(efp PRIVATE ${LIBC_INTERJECT})
     if(APPLE)
@@ -100,6 +107,8 @@ if (INSTALL_DEVEL_HEADERS)
 endif()
 install(TARGETS efp
         EXPORT "${PN}Targets"
+        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
@@ -111,21 +120,19 @@ target_include_directories(efp INTERFACE
 
 # <<< Export Config >>>
 
-# GNUInstallDirs "DATADIR" wrong here; CMake search path wants "share".
-set(CMAKECONFIG_INSTALL_DIR "share/cmake/${PN}")
 configure_package_config_file(cmake/${PN}Config.cmake.in
                               "${CMAKE_CURRENT_BINARY_DIR}/${PN}Config.cmake"
-                              INSTALL_DESTINATION ${CMAKECONFIG_INSTALL_DIR})
+                              INSTALL_DESTINATION ${LIBEFP_CMAKECONFIG_INSTALL_DIR})
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/${PN}ConfigVersion.cmake
                                  VERSION ${${PN}_VERSION}
-                                 COMPATIBILITY AnyNewerVersion)
+                                 COMPATIBILITY SameMinorVersion)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${PN}Config.cmake
               ${CMAKE_CURRENT_BINARY_DIR}/${PN}ConfigVersion.cmake
               cmake/FindTargetLAPACK.cmake
-        DESTINATION ${CMAKECONFIG_INSTALL_DIR})
+        DESTINATION ${LIBEFP_CMAKECONFIG_INSTALL_DIR})
 install(EXPORT "${PN}Targets"
         NAMESPACE "${PN}::"
-        DESTINATION ${CMAKECONFIG_INSTALL_DIR})
+        DESTINATION ${LIBEFP_CMAKECONFIG_INSTALL_DIR})
 
 # Notes on CMake: CMake builds libefp, the shared or static library,
 #   but not efpmd because Psi4 doesn't use it. Also not implemented
