@@ -1,6 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
-# project_VERSION* variables populated from project(... VERSION x.x.x) string
-cmake_policy(SET CMP0048 NEW)
+cmake_minimum_required(VERSION 3.16)
 
 project(libefp VERSION 1.7.2 LANGUAGES C)
 set(libefp_AUTHORS "Ilya A. Kaliman, Lori A. Burns, Dmitry Morozov, Carlos H. Borca, Yen (Terri) Bui, Yongbin Kim, Lyudmila V. Slipchenko")
@@ -37,35 +35,11 @@ find_package(TargetLAPACK REQUIRED)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-set(PN ${PROJECT_NAME})
+set(efp libefp)  # Namespace
 
 # <<< Build >>>
 
-set(raw_sources_list aidisp.c balance.c clapack.c disp.c efp.c elec.c
-                     electerms.c int.c log.c parse.c pol.c poldirect.c
-                     stream.c swf.c util.c xr.c)
-set(src_prefix "src/")
-string(REGEX REPLACE "([^;]+)" "${src_prefix}\\1" sources_list "${raw_sources_list}")
-
-# STATIC/SHARED on below governed by BUILD_SHARED_LIBS
-add_library(efp ${sources_list})
-set_target_properties(efp
-  PROPERTIES
-    POSITION_INDEPENDENT_CODE ${BUILD_FPIC}
-    C_STANDARD 99
-    C_STANDARD_REQUIRED ON
-    C_EXTENSIONS OFF
-    SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
-  )
-
-if(${BUILD_SHARED_LIBS})
-    target_link_libraries(efp PRIVATE ${LIBC_INTERJECT})
-    if(APPLE)
-        set_target_properties(efp PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-    endif()
-endif()
-target_link_libraries(efp PRIVATE tgt::lapack)
-
+# fragment library
 set(FRAGLIB_DATADIRS "")
 file(GLOB_RECURSE _dotefps RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "fraglib/*.efp")
 foreach(_dotefp ${_dotefps})
@@ -85,28 +59,84 @@ foreach(_dotefp ${_dotefps})
         set(_destcontents ${_strefp})
     endif()
 
-    list(APPEND FRAGLIB_DATADIRS ${_destdir})
+    list(APPEND FRAGLIB_DATADIRS "${_destdir}")
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/${_destdir}/${_efpfile} ${_destcontents})
 endforeach()
 list(REMOVE_DUPLICATES FRAGLIB_DATADIRS)
 
+# C library
+set(raw_sources_list
+  aidisp.c
+  balance.c
+  clapack.c
+  disp.c
+  efp.c
+  elec.c
+  electerms.c
+  int.c
+  log.c
+  parse.c
+  pol.c
+  poldirect.c
+  stream.c
+  swf.c
+  util.c
+  xr.c
+  )
+set(src_prefix "src/")
+string(REGEX REPLACE "([^;]+)" "${src_prefix}\\1" sources_list "${raw_sources_list}")
+
+set(export_properties
+  "${efp}_VERSION"
+  "${efp}_FRAGLIB_DIRS"
+  )
+
+# STATIC/SHARED on below governed by BUILD_SHARED_LIBS
+add_library(efp ${sources_list})
+add_library(${efp}::efp ALIAS efp)
+set_target_properties(efp
+  PROPERTIES
+    POSITION_INDEPENDENT_CODE ${BUILD_FPIC}
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF
+    SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
+    OUTPUT_NAME "efp"
+    EXPORT_NAME "efp"
+    ${efp}_VERSION ${${efp}_VERSION}
+    ${efp}_FRAGLIB_DIRS "${FRAGLIB_DATADIRS}"
+  )
+set_property(TARGET efp APPEND PROPERTY EXPORT_PROPERTIES "${export_properties}")
+
+if(${BUILD_SHARED_LIBS})
+    target_link_libraries(efp PRIVATE ${LIBC_INTERJECT})
+    if(APPLE)
+        set_target_properties(efp PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+    endif()
+endif()
+target_link_libraries(
+  efp
+  PUBLIC
+    tgt::lapack
+  )
+
 # <<< Install >>>
 
 install(FILES fraglib/makefp.inp
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/${PN})
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/${efp})
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fraglib
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/${PN})
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/${efp})
 
 # headers NOT namespace protected
 install(FILES ${src_prefix}/efp.h
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 if (INSTALL_DEVEL_HEADERS)
     install(DIRECTORY ${src_prefix}
-            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${PN}
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${efp}
             FILES_MATCHING PATTERN "*.h")
 endif()
 install(TARGETS efp
-        EXPORT "${PN}Targets"
+        EXPORT "${efp}Targets-C"
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -114,25 +144,38 @@ install(TARGETS efp
 
 # <<< Export Interface >>>
 
-target_compile_definitions(efp INTERFACE USING_${PN})
+target_compile_definitions(efp INTERFACE USING_${efp})
 target_include_directories(efp INTERFACE
                            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
 # <<< Export Config >>>
 
-configure_package_config_file(cmake/${PN}Config.cmake.in
-                              "${CMAKE_CURRENT_BINARY_DIR}/${PN}Config.cmake"
-                              INSTALL_DESTINATION ${LIBEFP_CMAKECONFIG_INSTALL_DIR})
-write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/${PN}ConfigVersion.cmake
-                                 VERSION ${${PN}_VERSION}
-                                 COMPATIBILITY SameMinorVersion)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${PN}Config.cmake
-              ${CMAKE_CURRENT_BINARY_DIR}/${PN}ConfigVersion.cmake
-              cmake/FindTargetLAPACK.cmake
-        DESTINATION ${LIBEFP_CMAKECONFIG_INSTALL_DIR})
-install(EXPORT "${PN}Targets"
-        NAMESPACE "${PN}::"
-        DESTINATION ${LIBEFP_CMAKECONFIG_INSTALL_DIR})
+configure_package_config_file(
+  cmake/${efp}Config.cmake.in
+  "${CMAKE_CURRENT_BINARY_DIR}/${efp}Config.cmake"
+  INSTALL_DESTINATION ${LIBEFP_CMAKECONFIG_INSTALL_DIR}
+  )
+write_basic_package_version_file(
+  ${CMAKE_CURRENT_BINARY_DIR}/${efp}ConfigVersion.cmake
+  VERSION ${${efp}_VERSION}
+  COMPATIBILITY SameMinorVersion
+  )
+install(
+  FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/${efp}Config.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/${efp}ConfigVersion.cmake
+    cmake/FindTargetLAPACK.cmake
+  DESTINATION
+    ${LIBEFP_CMAKECONFIG_INSTALL_DIR}
+  )
+install(
+  EXPORT
+    "${efp}Targets-C"
+  NAMESPACE
+    "${efp}::"
+  DESTINATION
+    ${LIBEFP_CMAKECONFIG_INSTALL_DIR}
+  )
 
 # Notes on CMake: CMake builds libefp, the shared or static library,
 #   but not efpmd because Psi4 doesn't use it. Also not implemented
