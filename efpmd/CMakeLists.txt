@@ -1,7 +1,4 @@
 
-# needed to link the Fortran routines in libff into the efpmd executable
-enable_language(Fortran)
-
 add_library(
   libff
   OBJECT
@@ -62,9 +59,20 @@ add_executable(${efp}::efpmd ALIAS efpmd)
 # TODO FRAGLIB_PATH not right upon install
 
 set_target_properties(
+  libff
+  libopt
   efpmd
   PROPERTIES
+    POSITION_INDEPENDENT_CODE ${BUILD_FPIC}
+  )
+set_target_properties(
+  efpmd
+  PROPERTIES
+    MACOSX_RPATH ON
+    SKIP_BUILD_RPATH OFF
+    BUILD_WITH_INSTALL_RPATH OFF
     INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}"
+    INSTALL_RPATH_USE_LINK_PATH ON
   )
 install(
   TARGETS

@@ -1,63 +1,65 @@
-# libefpConfig.cmake
-# ------------------
-#
-# libefp cmake module.
-# This module sets the following variables in your project::
-#
-#   libefp_FOUND - true if libefp and all required components found on the system
-#   libefp_VERSION - libefp version in format Major.Minor.Release. Prefer target variable.
-#   libefp_INCLUDE_DIRS - Directory where efp.h header is located and dependent headers. Prefer targets.
-#   libefp_INCLUDE_DIR - same as DIRS. Prefer targets.
-#   libefp_DEFINITIONS - Definitions to indicate libefp is present, namely USING_libefp. Prefer targets.
-#   libefp_LIBRARIES - libefp library to link against plus any dependent libraries. Prefer targets.
-#   libefp_LIBRARY - libefp library to link against. Prefer targets
-#   libefp_FRAGLIB_DIRS - Directories (list of full paths) where EFP fragments are located. Prefer targets.
-#
-#
-# Target variables::
-#
-# It is preferred to use properties set on the base target rather than using the above variables. ::
-#
-#   libefp_VERSION - libefp version in format Major.Minor.Release
-#   libefp_FRAGLIB_DIRS - Directories (list) where EFP fragments are located. Unlike
-#                         the plain variable, this target variable contains partial paths.
-#
-#   get_property(_ver TARGET libefp::efp PROPERTY libefp_VERSION)
-#
-#
-# Available components::
-#
-#   shared - search for only shared library
-#   static - search for only static library
-#   deep - search for only fragment library where directory structure is layered
-#   shallow - search for only fragment library where directory structure has been collapsed
-#   exe - search for executable as well as library
-#
-#
-# Exported targets::
-#
-# If libefp is found, this module defines at least the first following
-# :prop_tgt:`IMPORTED` target. Target is shared _or_ static, so, for both, use
-# separate, not overlapping, installations. Depending on components available,
-# it may define::
-#
-#   libefp::efp - the main libefp library with header & defs attached.
-#   libefp::efpmd - the efpmd executable program (COMPONENT exe)
-#
-#
-# Suggested usage::
-#
-#   find_package(libefp)
-#   find_package(libefp 1.5.0 EXACT CONFIG REQUIRED COMPONENTS shared)
-#
-#
-# The following variables can be set to guide the search for this package::
-#
-#   libefp_DIR - CMake variable, set to directory containing this Config file
-#   CMAKE_PREFIX_PATH - CMake variable, set to root directory of this package
-#   PATH - environment variable, set to bin directory of this package
-#   CMAKE_DISABLE_FIND_PACKAGE_libefp - CMake variable, disables
-#     find_package(libefp) when not REQUIRED, perhaps to force internal build
+#[=======================================================================[.rst:
+libefpConfig.cmake
+------------------
+
+libefp cmake module.
+This module sets the following variables in your project::
+
+  libefp_FOUND - true if libefp and all required components found on the system
+  libefp_VERSION - libefp version in format Major.Minor.Release. Prefer target variable.
+  libefp_INCLUDE_DIRS - Directory where efp.h header is located and dependent headers. Prefer targets.
+  libefp_INCLUDE_DIR - same as DIRS. Prefer targets.
+  libefp_DEFINITIONS - Definitions to indicate libefp is present, namely USING_libefp. Prefer targets.
+  libefp_LIBRARIES - libefp library to link against plus any dependent libraries. Prefer targets.
+  libefp_LIBRARY - libefp library to link against. Prefer targets
+  libefp_FRAGLIB_DIRS - Directories (list of full paths) where EFP fragments are located. Prefer targets.
+
+
+Target variables::
+
+It is preferred to use properties set on the base target rather than using the above variables. ::
+
+  libefp_VERSION - libefp version in format Major.Minor.Release
+  libefp_FRAGLIB_DIRS - Directories (list) where EFP fragments are located. Unlike
+                        the plain variable, this target variable contains partial paths.
+
+  get_property(_ver TARGET libefp::efp PROPERTY libefp_VERSION)
+
+
+Available components::
+
+  shared - search for only shared library
+  static - search for only static library
+  deep - search for only fragment library where directory structure is layered
+  shallow - search for only fragment library where directory structure has been collapsed
+  exe - search for executable as well as library
+
+
+Exported targets::
+
+If libefp is found, this module defines at least the first following
+:prop_tgt:`IMPORTED` target. Target is shared _or_ static, so, for both, use
+separate, not overlapping, installations. Depending on components available,
+it may define::
+
+  libefp::efp - the main libefp library with header & defs attached.
+  libefp::efpmd - the efpmd executable program (COMPONENT exe)
+
+
+Suggested usage::
+
+  find_package(libefp)
+  find_package(libefp 1.5.0 EXACT CONFIG REQUIRED COMPONENTS shared)
+
+
+The following variables can be set to guide the search for this package::
+
+  libefp_DIR - CMake variable, set to directory containing this Config file
+  CMAKE_PREFIX_PATH - CMake variable, set to root directory of this package
+  PATH - environment variable, set to bin directory of this package
+  CMAKE_DISABLE_FIND_PACKAGE_libefp - CMake variable, disables
+    find_package(libefp) when not REQUIRED, perhaps to force internal build
+#]=======================================================================]
 
 @PACKAGE_INIT@
 

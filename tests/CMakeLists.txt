@@ -1,6 +1,49 @@
 
 # See output in <BUILD_DIR>/Testing/Temporary/LastTest.log
 
+macro(add_serial_test _name)
+    add_test(
+      NAME "${_name}_serial"
+      COMMAND efpmd ${CMAKE_CURRENT_SOURCE_DIR}/${_name}.in
+      )
+    set_tests_properties(
+      "${_name}_serial"
+      PROPERTIES
+        PASS_REGULAR_EXPRESSION "COMPLETED SUCCESSFULLY"
+        FAIL_REGULAR_EXPRESSION "DOES NOT MATCH"
+        LABELS "serial"
+      )
+endmacro()
+
+macro(add_omp_test _name _thr)
+    add_test(
+      NAME "${_name}_omp"
+      COMMAND efpmd ${CMAKE_CURRENT_SOURCE_DIR}/${_name}.in
+      )
+    set_tests_properties(
+      "${_name}_omp"
+      PROPERTIES
+        PASS_REGULAR_EXPRESSION "COMPLETED SUCCESSFULLY"
+        FAIL_REGULAR_EXPRESSION "DOES NOT MATCH"
+        ENVIRONMENT OMP_NUM_THREADS=${_thr}
+        LABELS "omp"
+      )
+endmacro()
+
+macro(add_mpi_test _name _prc)
+    add_test(
+      NAME "${_name}_mpi"
+      COMMAND mpirun -np ${_prc} $<TARGET_FILE:efpmd> ${CMAKE_CURRENT_SOURCE_DIR}/${_name}.in
+      )
+    set_tests_properties(
+      "${_name}_mpi"
+      PROPERTIES
+        PASS_REGULAR_EXPRESSION "COMPLETED SUCCESSFULLY"
+        FAIL_REGULAR_EXPRESSION "DOES NOT MATCH"
+        LABELS "mpi"
+      )
+endmacro()
+
 foreach(test_name
   atom_coord
   constraint_1
@@ -73,14 +116,13 @@ foreach(test_name
   # crambin/opt.in not handled (cannot load ff geometry)
   )
 
-    add_test(
-      NAME ${test_name}
-      COMMAND efpmd ${CMAKE_CURRENT_SOURCE_DIR}/${test_name}.in
-      )
-    set_tests_properties(
-      ${test_name}
-      PROPERTIES
-        PASS_REGULAR_EXPRESSION "COMPLETED SUCCESSFULLY"
-        FAIL_REGULAR_EXPRESSION "DOES NOT MATCH"
-      )
+    add_serial_test(${test_name})
+
+    if (LIBEFP_ENABLE_OPENMP)
+        add_omp_test(${test_name} 2)
+    endif()
+
+    if (ENABLE_MPI)
+        add_mpi_test(${test_name} 2)
+    endif()
 endforeach()
