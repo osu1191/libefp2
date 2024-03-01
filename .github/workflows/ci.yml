@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        cfg:
+          - label: L-Gnu
+            runs-on: ubuntu-latest
+            python-version: "3.10"
+            build_type: Release
+            cmargs: ""
+    name: "Build • 🐍 ${{ matrix.cfg.python-version }} • ${{ matrix.cfg.label }}"
+    runs-on: ${{ matrix.cfg.runs-on }}
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write a Conda Env File
+        run: |
+          cat > export.yaml <<EOF
+          name: libefp-dev
+          channels:
+            - conda-forge
+            - nodefaults
+          dependencies:
+            - cmake
+            - ninja
+            - cxx-compiler
+            - blas-devel
+            - libblas=*=*mkl
+            #- dpcpp_linux-64
+          EOF
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            :
+          fi
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            :
+          fi
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            :
+          fi
+          # model sed for L/W
+          #   sed -i "s;;;g" export.yaml
+          # model sed for M
+          #   sed -E -i.bak "s;;;g" export.yaml
+          cat export.yaml
+
+      - name: Install dependencies
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          activate-environment: libefp-dev
+          environment-file: export.yaml
+          miniforge-variant: Mambaforge
+          use-mamba: true
+          channels: conda-forge
+
+      - name: Environment Information
+        run: |
+          mamba info
+          mamba list
+
+      - name: Configure CMake
+        run: |
+          cmake \
+            -S . \
+            -B ${{ github.workspace }}/build \
+            -G Ninja \
+            -D CMAKE_BUILD_TYPE=${{ matrix.cfg.build_type }} \
+            -D CMAKE_INSTALL_PREFIX="${{ github.workspace }}/installed" \
+            -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}" \
+            ${{ matrix.cfg.cmargs }}
+
+      - name: Build & Install
+        run: |
+          cmake --build ${{ github.workspace }}/build --config ${{ matrix.cfg.build_type }} --target install
+
+      - name: Test (CTest) - unit tests
+        run: ctest --output-on-failure --test-dir ${{ github.workspace }}/build
