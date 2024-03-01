@@ -18,11 +18,12 @@ if((${BUILD_SHARED_LIBS}) AND NOT ${BUILD_FPIC})
 endif()
 option_with_print(ENABLE_OPENMP "Enable OpenMP parallelization. Psi4 wants OFF" OFF)
 option_with_print(ENABLE_GENERIC "Enable mostly static linking in shared library" OFF)
-option_with_flags(ENABLE_XHOST "Enable processor-specific optimization" ON "-xHost" "-march=native")
+include(xhost)  # defines: option(ENABLE_XHOST "Enable processor-specific optimization" ON)
 option_with_print(FRAGLIB_UNDERSCORE_L "Installed fragment library has names ending in _L. Psi4 wants OFF" ON)
 option_with_print(FRAGLIB_DEEP "Installed fragment libary has hierarchical, not flat, filestructure. Psi4 wants OFF" ON)
 option_with_print(INSTALL_DEVEL_HEADERS "Install additional namespaced devel headers beyond convenience efp.h" OFF)
 option_with_default(LIBEFP_CMAKECONFIG_INSTALL_DIR "Directory within CMAKE_INSTALL_PREFIX to which CMake configuration files installed" "share/cmake/libefp")
+option_with_print(LIBEFP_ENABLE_EFPMD "Build standalone efpmd executable (requires Fortran). This also enables testing" ON)
 
 ######################### Process & Validate Options ###########################
 include(autocmake_safeguards)
@@ -64,7 +65,7 @@ foreach(_dotefp ${_dotefps})
 endforeach()
 list(REMOVE_DUPLICATES FRAGLIB_DATADIRS)
 
-# C library
+# libefp C library
 set(raw_sources_list
   aidisp.c
   balance.c
@@ -119,6 +120,14 @@ target_link_libraries(
   PUBLIC
     tgt::lapack
   )
+
+# efpmd executable
+if (LIBEFP_ENABLE_EFPMD)
+    add_subdirectory(efpmd)
+
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 # <<< Install >>>
 

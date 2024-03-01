@@ -31,6 +31,7 @@
 #   static - search for only static library
 #   deep - search for only fragment library where directory structure is layered
 #   shallow - search for only fragment library where directory structure has been collapsed
+#   exe - search for executable as well as library
 #
 #
 # Exported targets::
@@ -41,6 +42,7 @@
 # it may define::
 #
 #   libefp::efp - the main libefp library with header & defs attached.
+#   libefp::efpmd - the efpmd executable program (COMPONENT exe)
 #
 #
 # Suggested usage::
@@ -79,6 +81,10 @@ else()
 endif()
 string(REGEX REPLACE "([^;]+)" "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/${efp}/\\1" ${efp}_FRAGLIB_DIRS "@FRAGLIB_DATADIRS@")  # FRAGLIB_DATADIRS
 
+# check executable component
+if (@LIBEFP_ENABLE_EFPMD@ AND EXISTS "${CMAKE_CURRENT_LIST_DIR}/${efp}Targets-exe.cmake")  # LIBEFP_ENABLE_EFPMD
+    set(${efp}_exe_FOUND 1)
+endif()
 
 # make detectable the FindTarget*.cmake modules
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
@@ -99,7 +105,7 @@ check_required_components(${efp})
 if(NOT TARGET ${efp}::efp)
     include("${CMAKE_CURRENT_LIST_DIR}/${efp}Targets-C.cmake")
 
-    get_property(_loc TARGET ${efp}::efp PROPERTY LOCATION)
+    get_property(_loc TARGET ${efp}::efp PROPERTY INTERFACE_LOCATION)
     get_property(_ill TARGET ${efp}::efp PROPERTY INTERFACE_LINK_LIBRARIES)
     get_property(_iid TARGET ${efp}::efp PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
     get_property(_icd TARGET ${efp}::efp PROPERTY INTERFACE_COMPILE_DEFINITIONS)
@@ -108,6 +114,10 @@ if(NOT TARGET ${efp}::efp)
     set(${efp}_INCLUDE_DIR ${_iid})
     set(${efp}_INCLUDE_DIRS ${_iid})
     set(${efp}_DEFINITIONS ${_icd})
+
+    if(${efp}_exe_FOUND)
+        include("${CMAKE_CURRENT_LIST_DIR}/${efp}Targets-exe.cmake")
+    endif()
 
     if (CMAKE_VERSION VERSION_GREATER 3.15)
         message(VERBOSE "libefp::efp")
