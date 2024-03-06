@@ -8,7 +8,11 @@
 */
 
 #include <efp.h>
+#if __has_include(<libefp/private.h>)
 #include <libefp/private.h>
+#else
+#include "private.h"
+#endif
 
 #include <pybind11/pybind11.h>
 
@@ -155,7 +159,7 @@ py::tuple _efp_get_periodic_box(efp* efp) {
     enum efp_result res;
     py::list xyz;
 
-    size_t dim = 3;
+    size_t dim = 6;
     double* ccoords = NULL;
     ccoords = new double[dim];
     double* pcoords = ccoords;

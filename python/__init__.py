@@ -20,7 +20,7 @@ from . import core
 # Load driver and version paraphernalia
 from .wrapper import from_dict, to_dict
 from .exceptions import EFPException, Fatal, NoMemory, FileNotFound, EFPSyntaxError, UnknownFragment, PolNotConverged, PyEFPSyntaxError
-from .metadata import __version__, version_formatter
+__version__ = "@pylibefp_VERSION@"
 
 # A few extraneous functions
 from .extras import test

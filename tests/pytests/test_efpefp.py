@@ -139,7 +139,7 @@ def test_total_1a():
     assert compare(2, asdf.get_frag_count(), sys._getframe().f_code.co_name + ': nfrag')
     assert compare_values(0.0, asdf.get_frag_charge(1), sys._getframe().f_code.co_name + ': f_chg', atol=1.e-6)
     assert compare(1, asdf.get_frag_multiplicity(1), sys._getframe().f_code.co_name + ': f_mult')
-    assert compare('NH3', asdf.get_frag_name(1), sys._getframe().f_code.co_name + ': f_name')
+    assert compare('NH3_L', asdf.get_frag_name(1), sys._getframe().f_code.co_name + ': f_name')
     assert compare_recursive(expected_ene, ene, sys._getframe().f_code.co_name + ': ene', atol=1.e-6)
 
 
@@ -303,7 +303,7 @@ def test_total_4a():
     assert compare(12, asdf.get_frag_count(), sys._getframe().f_code.co_name + ': nfrag')
     assert compare_recursive({'dummy': cfrags}, {'dummy': asdf.get_frag_charge()}, tnm + ': f_chg', atol=1.e-2)
     assert compare_recursive({'dummy': mfrags}, {'dummy': asdf.get_frag_multiplicity()}, tnm + ': f_mult', atol=1.e-2)
-    assert compare_recursive({'dummy': nfrags}, {'dummy': asdf.get_frag_name()}, tnm + ': f_names', atol=1.e-2)
+    assert compare_recursive({'dummy': [fr + '_L' for fr in nfrags]}, {'dummy': asdf.get_frag_name()}, tnm + ': f_names', atol=1.e-2)
     assert compare_values(-0.0095597483, ene['total'], sys._getframe().f_code.co_name, atol=1.e-5)
 
 

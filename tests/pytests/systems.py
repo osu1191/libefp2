@@ -8,7 +8,7 @@ a2b = 1.0 / b2a
 def system_1():
     sys = pylibefp.core.efp()
 
-    frags = ['h2o', 'nh3']
+    frags = ['h2o_l', 'nh3_L']  # specifying LIBRARY with _l for variety
     sys.add_potential(frags)
     sys.add_fragment(frags)
     sys.set_frag_coordinates(0, 'xyzabc', [0.0 * a2b, 0.0 * a2b, 0.0 * a2b, 1.0, 2.0, 3.0])  # yapf: disable

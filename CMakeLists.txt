@@ -1,10 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
+if (POLICY CMP0135)
+	cmake_policy(SET CMP0135 NEW)
+endif ()
+
+# extract project version from source
+file(STRINGS "src/efp.h" _src_efp_h REGEX "LIBEFP_VERSION_STRING")
+if (${_src_efp_h} MATCHES "^#define LIBEFP_VERSION_STRING \"(.*)\"$")
+    set(_libefp_VERSION ${CMAKE_MATCH_1})
+endif()
 
 project(
   libefp
-  # sync VERSION here with src/efp.h LIBEFP_VERSION_STRING
   # someday when Makefile dropped, configure efp.h.in from cmake
-  VERSION 1.8.0
+  VERSION ${_libefp_VERSION}
   LANGUAGES C
   )
 set(libefp_AUTHORS "Ilya A. Kaliman, Lori A. Burns, Dmitry Morozov, Carlos H. Borca, Yen (Terri) Bui, Yongbin Kim, Lyudmila V. Slipchenko")
@@ -32,6 +40,12 @@ if (${efp}_IS_TOP_LEVEL)
     if (DEFINED ENABLE_OPENMP)
         message(FATAL_ERROR "Use LIBEFP_ENABLE_OPENMP instead of ENABLE_OPENMP.")
     endif()
+    if (DEFINED FRAGLIB_UNDERSCORE_L)
+        message(WARNING "Using FRAGLIB_UNDERSCORE_L=OFF is deprecated and may be removed as soon as v1.10. Please adapt your fragment search to handle name and name_L.")
+    endif()
+    if (DEFINED FRAGLIB_DEEP)
+        message(WARNING "Using FRAGLIB_DEEP=OFF is deprecated and may be removed as soon as v1.10. Please adapt your fraglib library usage to handle a list of paths.")
+    endif()
 endif()
 
 option_with_default(CMAKE_BUILD_TYPE "Build type" Release)
@@ -43,11 +57,14 @@ endif()
 option_with_print(LIBEFP_ENABLE_OPENMP "Enable OpenMP parallelization. Psi4 wants OFF" OFF)
 option_with_print(ENABLE_GENERIC "Enable mostly static linking in shared library" OFF)
 include(xhost)  # defines: option(ENABLE_XHOST "Enable processor-specific optimization" ON)
-option_with_print(FRAGLIB_UNDERSCORE_L "Installed fragment library has names ending in _L. Psi4 wants OFF" ON)
-option_with_print(FRAGLIB_DEEP "Installed fragment libary has hierarchical, not flat, filestructure. Psi4 wants OFF" ON)
+option_with_print(FRAGLIB_UNDERSCORE_L "DEPRECATED: Installed fragment library has names ending in _L. Psi4 wants OFF" ON)
+option_with_print(FRAGLIB_DEEP "DEPRECATED: Installed fragment libary has hierarchical, not flat, filestructure. Psi4 wants OFF" ON)
 option_with_print(INSTALL_DEVEL_HEADERS "Install additional namespaced devel headers beyond convenience efp.h" OFF)
 option_with_default(LIBEFP_CMAKECONFIG_INSTALL_DIR "Directory within CMAKE_INSTALL_PREFIX to which CMake configuration files installed" "share/cmake/libefp")
 option_with_print(LIBEFP_ENABLE_EFPMD "Build standalone efpmd executable (requires Fortran). This also enables testing" ON)
+
+option_with_default(PYMOD_INSTALL_LIBDIR "If LIBEFP_ENABLE_PYTHON, location within CMAKE_INSTALL_LIBDIR to which python modules are installed" /)
+option_with_print(LIBEFP_ENABLE_PYTHON "Build Python bindings (requires CXX, Python, and Pybind11)" OFF)
 
 ######################### Process & Validate Options ###########################
 include(autocmake_safeguards)
@@ -162,6 +179,12 @@ target_link_libraries(
     tgt::lapack
     $<$<TARGET_EXISTS:OpenMP::OpenMP_C>:OpenMP::OpenMP_C>
   )
+
+# pylibefp bindings
+if (LIBEFP_ENABLE_PYTHON)
+    enable_language(CXX)
+    add_subdirectory(python)
+endif()
 
 # efpmd executable
 if (LIBEFP_ENABLE_EFPMD)

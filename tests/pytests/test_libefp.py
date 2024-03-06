@@ -13,7 +13,7 @@ def test_elec_1c():
         'elec_damp': 'off',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 6.0 * a2b
+        'swf_cutoff': 6.0 * a2b,
     })
     import pprint
     pprint.pprint(opts)
@@ -36,7 +36,7 @@ def test_disp_1c():
         'disp_damp': 'off',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 6.0 * a2b
+        'swf_cutoff': 6.0 * a2b,
     })
     asdf.set_periodic_box([20.0 * a2b, 20.0 * a2b, 20.0 * a2b])
     box = asdf._efp_get_periodic_box()
@@ -57,7 +57,7 @@ def test_qm_1a():
         'elec_damp': 'overlap',
         'disp_damp': 'tt',
         'ai_elec': True,
-        'ai_pol': True
+        'ai_pol': True,
     })
     ptc = [1., 8., 2., 1.]
     coords = [ 3.2,   1.8,  -2.3,
@@ -115,7 +115,7 @@ def test_qm_1b():
         'disp_damp': 'tt',
         'ai_elec': True,
         'ai_pol': True,
-        'pol_driver': 'direct'
+        'pol_driver': 'direct',
     })
     ptc = [1., 8., 2., 1.]
     coords = [ 3.2,   1.8,  -2.3,
@@ -161,7 +161,7 @@ def test_qm_2a():
         'elec_damp': 'screen',
         'disp_damp': 'overlap',
         'ai_elec': True,
-        'ai_pol': True
+        'ai_pol': True,
     })
 
     asdf.compute()
@@ -184,7 +184,7 @@ def test_qm_2b():
         'disp_damp': 'overlap',
         'ai_elec': True,
         'ai_pol': True,
-        'pol_driver': 'direct'
+        'pol_driver': 'direct',
     })
 
     asdf.compute()
@@ -206,7 +206,7 @@ def test_total_5a():
         'pol_damp': 'off',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 6.0 * a2b
+        'swf_cutoff': 6.0 * a2b,
     })
     asdf.set_periodic_box([15.0 * a2b, 15.0 * a2b, 15.0 * a2b])
 
@@ -228,7 +228,7 @@ def test_total_5b():
         'pol_damp': 'tt',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 6.0 * a2b
+        'swf_cutoff': 6.0 * a2b,
     })
     asdf.set_periodic_box([15.0 * a2b, 15.0 * a2b, 15.0 * a2b])
 
@@ -250,7 +250,7 @@ def test_total_5c():
         'pol_damp': 'tt',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 6.0 * a2b
+        'swf_cutoff': 6.0 * a2b,
     })
     asdf.set_periodic_box([15.0 * a2b, 15.0 * a2b, 15.0 * a2b])
 
@@ -295,7 +295,7 @@ def test_total_6a():
         'pol_damp': 'off',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 5.0 * a2b
+        'swf_cutoff': 5.0 * a2b,
     })
     asdf.set_periodic_box([15.0 * a2b, 15.0 * a2b, 15.0 * a2b])
 
@@ -317,7 +317,7 @@ def test_total_6b():
         'pol_damp': 'tt',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 5.0 * a2b
+        'swf_cutoff': 5.0 * a2b,
     })
     asdf.set_periodic_box([15.0 * a2b, 15.0 * a2b, 15.0 * a2b])
 
@@ -339,7 +339,7 @@ def test_total_6c():
         'pol_damp': 'off',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 5.0 * a2b
+        'swf_cutoff': 5.0 * a2b,
     })
     asdf.set_periodic_box([15.0 * a2b, 15.0 * a2b, 15.0 * a2b])
 
@@ -361,7 +361,7 @@ def test_total_6d():
         'pol_damp': 'tt',
         'enable_pbc': True,
         'enable_cutoff': True,
-        'swf_cutoff': 5.0 * a2b
+        'swf_cutoff': 5.0 * a2b,
     })
     asdf.set_periodic_box([15.0 * a2b, 15.0 * a2b, 15.0 * a2b])
 

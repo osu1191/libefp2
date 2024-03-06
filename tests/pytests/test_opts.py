@@ -27,7 +27,7 @@ def test_opts_libefp():
         'pol_damp': 'tt',
         'disp_damp': 'overlap',
         'enable_pbc': False,
-        'ai_chtr': False
+        'ai_chtr': False,
     }
     ans1 = asdf.set_opts({})
     assert compare_recursive(ref1, ans1, sys._getframe().f_code.co_name + ': blank', atol=1.e-6)
@@ -49,14 +49,14 @@ def test_opts_libefp():
         'pol_damp': 'tt',
         'disp_damp': 'overlap',
         'enable_pbc': False,
-        'ai_chtr': False
+        'ai_chtr': False,
     }
     ans2 = asdf.set_opts({
         'elec_damp': 'OFF',
         'swf_cutoff': 1.0,
         'elec': True,
         'ai_elec': True,
-        'enable_cutoff': False
+        'enable_cutoff': False,
     })
     assert compare_recursive(ref2, ans2, sys._getframe().f_code.co_name + ': setting', atol=1.e-6)
 
@@ -77,7 +77,7 @@ def test_opts_libefp():
         'pol_damp': 'tt',
         'disp_damp': 'tt',
         'enable_pbc': False,
-        'ai_chtr': False
+        'ai_chtr': False,
     }
     ans3 = asdf.set_opts({'swf_cutoff': 2, 'elec': False, 'ai_elec': True, 'disp_damp': 'TT'}, append='append')
     assert compare_recursive(ref3, ans3, sys._getframe().f_code.co_name + ': append setting', atol=1.e-6)
@@ -99,7 +99,7 @@ def test_opts_libefp():
         'pol_damp': 'tt',
         'disp_damp': 'overlap',
         'enable_pbc': False,
-        'ai_chtr': False
+        'ai_chtr': False,
     }
     ans4 = asdf.set_opts({
         'elec_damp': 'OFF',
@@ -146,7 +146,7 @@ def test_opts_psi():
         'ind_damping': 'tt',
         'disp_damping': 'overlap',
         'enable_pbc': False,
-        'qm_chtr': False
+        'qm_chtr': False,
     }
     ans = asdf.set_opts({}, label='psi')
     assert compare_recursive(ref, ans, sys._getframe().f_code.co_name + ': psi blank', atol=1.e-6)
@@ -168,7 +168,7 @@ def test_opts_psi():
         'ind_damping': 'tt',
         'disp_damping': 'overlap',
         'enable_pbc': False,
-        'qm_chtr': False
+        'qm_chtr': False,
     }
     ans = asdf.set_opts(
         {
@@ -176,7 +176,7 @@ def test_opts_psi():
             'swf_cutoff': 1.0,
             'elst': True,
             'qm_elst': True,
-            'enable_cutoff': False
+            'enable_cutoff': False,
         }, label='psi')
     assert compare_recursive(ref, ans, sys._getframe().f_code.co_name + ': psi setting', atol=1.e-6)
 
@@ -197,7 +197,7 @@ def test_opts_psi():
         'ind_damping': 'tt',
         'disp_damping': 'tt',
         'enable_pbc': False,
-        'qm_chtr': False
+        'qm_chtr': False,
     }
     ans = asdf.set_opts({
         'swf_cutoff': 2,
@@ -226,13 +226,13 @@ def test_opts_psi():
         'ind_damping': 'tt',
         'disp_damping': 'overlap',
         'enable_pbc': False,
-        'qm_chtr': False
+        'qm_chtr': False,
     }
     ans = asdf.set_opts({
         'elst_damping': 'OFF',
         'swf_cutoff': 0.0,
         'elst': True,
-        'enable_cutoff': False
+        'enable_cutoff': False,
     },
                         append='libefp',
                         label='psi')
@@ -259,7 +259,7 @@ def test_opts_psi_dflt():
         'ind_damping': 'tt',
         'disp_damping': 'overlap',
         'enable_pbc': False,
-        'qm_chtr': False
+        'qm_chtr': False,
     }
     ans = asdf.set_opts({}, label='psi', append='psi')
     assert compare_recursive(ref, ans, sys._getframe().f_code.co_name + ': psi default blank', atol=1.e-6)
@@ -281,7 +281,7 @@ def test_opts_psi_dflt():
         'ind_damping': 'tt',
         'disp_damping': 'overlap',
         'enable_pbc': False,
-        'qm_chtr': False
+        'qm_chtr': False,
     }
     ans = asdf.set_opts(
         {
@@ -289,7 +289,7 @@ def test_opts_psi_dflt():
             'swf_cutoff': 1.0,
             'elst': True,
             'qm_elst': False,
-            'enable_cutoff': False
+            'enable_cutoff': False,
         },
         label='psi',
         append='append')
@@ -312,13 +312,13 @@ def test_opts_psi_dflt():
         'ind_damping': 'tt',
         'disp_damping': 'overlap',
         'enable_pbc': False,
-        'qm_chtr': False
+        'qm_chtr': False,
     }
     ans = asdf.set_opts({
         'elst_damping': 'OVERlap',
         'swf_cutoff': 2.0,
         'elst': False,
-        'enable_cutoff': True
+        'enable_cutoff': True,
     },
                         append='psi',
                         label='psi')

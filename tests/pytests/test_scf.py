@@ -12,8 +12,6 @@ SCF/EFP in Psi4 by @andysim, @edeprince3, @ilyak, @loriab
 libefp from [Kaliman:2013:2284]
 
 """
-from __future__ import division
-from __future__ import print_function
 
 __authors__ = "Lori A. Burns"
 __credits__ = [
@@ -39,7 +37,7 @@ import pylibefp
 print('PyLibEFP  loc:', os.path.abspath(pylibefp.__file__))
 
 
-@using_psi4_efpmints
+@using_psi4
 def test_qmefp():
     import psi4
     print('Psi4  loc:', os.path.abspath(psi4.__file__))
@@ -478,6 +476,7 @@ def test_qmefp():
     assert compare_values(0.2504904057, efpene['total'], 'EFP-EFP Totl', atol=1.e-6)
     assert compare_values(-76.0139362744, SCF_E, 'SCF', atol=1.e-6)
     efpmol.clean()
+    print("All passed!")
 
 
 if __name__ == '__main__':

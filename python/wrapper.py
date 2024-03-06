@@ -16,12 +16,12 @@ import re
 import sys
 import math
 import functools
+from pathlib import Path
 from typing import Dict
 
 import qcelemental as qcel
 
 from . import core
-from . import psiutil
 from .exceptions import Fatal, NoMemory, FileNotFound, EFPSyntaxError, UnknownFragment, PolNotConverged, PyEFPSyntaxError
 
 _lbtl = {
@@ -123,25 +123,28 @@ def add_potential(efpobj, potential, fragpath='LIBRARY', duplicates_ok=False):
     -------
     None
 
+    .. versionchanged:: 1.9
+       Now handles `_L` fragments by only looking in LIBRARY paths for these.
+       Also now handles "deep" library layouts. Unlike C libefp, a fragment
+       without _L extension is sought in all fraglib paths, including LIBRARY,
+       if present.
+
     """
-    # TODO handle casing of potential
-    # form unified path list for efpfrags
     paths = []
+    library_paths = []
     for pth in fragpath.split(os.pathsep):
         if pth == 'LIBRARY':
-            paths.append('@libefp_FRAGLIB_DIRS@')
-            paths.append('/opt/anaconda1anaconda2anaconda3/share/libefp/fraglib')
-            paths.append('/opt/anaconda1anaconda2anaconda3/Library/share/libefp/fraglib')
+            for lst in [paths, library_paths]:
+                for spth in '@libefp_FRAGLIB_DIRS@'.split(';'):
+                    lst.append(spth)
+                lst.append('/opt/anaconda1anaconda2anaconda3/share/libefp/fraglib')
+                lst.append('/opt/anaconda1anaconda2anaconda3/share/libefp/fraglib/databases')
+                lst.append('/opt/anaconda1anaconda2anaconda3/Library/share/libefp/fraglib')
+                lst.append('/opt/anaconda1anaconda2anaconda3/Library/share/libefp/fraglib/databases')
+                for spth in '@FRAGLIB_DATADIRS@'.split(';'):
+                    lst.append(str((Path('@CMAKE_CURRENT_SOURCE_DIR@') / '..' / spth).resolve()))
         else:
             paths.append(os.path.expandvars(os.path.expanduser(pth)))
-    paths = os.pathsep.join(paths)
-
-    #        paths.append(libraryPath)
-    #    elif pth in os.environ:
-    #        envvar = os.environ.get('PSIDATADIR', None)
-    #        paths.extend(envvar.split(os.pathsep))
-    #    else:
-    #        paths.extend(pth.split(os.pathsep))
 
     # locate efpfrags full path name
     abspath_pots = []
@@ -149,9 +152,23 @@ def add_potential(efpobj, potential, fragpath='LIBRARY', duplicates_ok=False):
         potential = [potential]
     uniq_pots = list(set(potential))
     for pot in uniq_pots:
-        if not pot.endswith('.efp'):
-            pot += '.efp'
-        abspath_pots.append(psiutil.search_file(pot, paths))
+        pathpot = Path(pot).with_suffix('.efp')
+        search_paths = []
+
+        if pathpot.stem.upper().endswith('_L'):
+            # if "frag_L", only search for "LIBRARY/frag.efp"
+            file_pot_name = pathpot.with_name(str(pathpot.stem)[:-2]).with_suffix('.efp')
+            for pth in library_paths:
+                search_paths.append((pth / file_pot_name).resolve())
+        else:
+            # otherwise, search all "<fragpath>/frag.efp", possibly incl. LIBRARY
+            for pth in paths:
+                search_paths.append((pth / pathpot).resolve())
+
+        for pth in search_paths:
+            if pth.is_file():
+                abspath_pots.append(str(pth))
+                break
 
     # load the potentials
     for ipot, pot in enumerate(abspath_pots):
@@ -175,6 +192,9 @@ def add_fragment(efpobj, fragments):
     fragments : list of str
        Names of fragments to define the EFP subsystem.
 
+    .. versionchanged:: 1.9
+       Fragments are checking `_L` extensions for library files, too.
+
     Returns
     -------
     None
@@ -184,7 +204,11 @@ def add_fragment(efpobj, fragments):
         fragments = [fragments]
     for frag in fragments:
         res = efpobj._efp_add_fragment(frag)
-        _result_to_error(res, frag)
+        try:
+            _result_to_error(res, frag)
+        except UnknownFragment as e:
+            res = efpobj._efp_add_fragment(frag + "_L")
+            _result_to_error(res, frag)
 
 
 def get_opts(efpobj, label='libefp'):
@@ -457,25 +481,34 @@ def set_opts(efpobj, dopts, label='libefp', append='libefp'):
     return efpobj.get_opts(label=label)
 
 
-def set_periodic_box(efpobj, xyz):
+def set_periodic_box(efpobj, xyz, alpha=90.0, beta=90.0, gamma=90.0):
     """Set periodic box size.
 
     Parameters
     ----------
     xyz : list
         (3,) Box sizes in three dimensions [x, y, z] in Bohr.
+    alpha
+        Unit cell alpha angle in degrees.
+    beta
+        Unit cell beta angle in degrees.
+    gamma
+        Unit cell gamma angle in degrees.
 
     Returns
     -------
     None
 
+    .. versionchanged:: 1.9
+       Parameters alpha, beta, and gamma added.
+
     """
     if len(xyz) != 3:
         raise PyEFPSyntaxError('Invalid periodic box setting: {}'.format(xyz))
 
-    res = efpobj._efp_set_periodic_box(xyz[0], xyz[1], xyz[2])
+    res = efpobj._efp_set_periodic_box(xyz[0], xyz[1], xyz[2], alpha, beta, gamma)
     _result_to_error(res)
-    (res, xyz2) = efpobj._efp_get_periodic_box()
+    (res, xyzabc) = efpobj._efp_get_periodic_box()
     _result_to_error(res)
 
 
@@ -486,12 +519,16 @@ def get_periodic_box(efpobj):
     -------
     list
         Box sizes in three dimensions [x, y, z] in Bohr.
+        And box angles [alpha, beta, gamma] in degrees.
+
+    .. versionchanged:: 1.9
+       Return size extended from 3 to 6 to include angles.
 
     """
-    (res, xyz) = efpobj._efp_get_periodic_box()
+    (res, xyzabc) = efpobj._efp_get_periodic_box()
     _result_to_error(res)
 
-    return xyz
+    return xyzabc
 
 
 #def opts_summary(efpobj, labels='libefp'):
@@ -1667,5 +1704,5 @@ def provenance_stamp(routine: str) -> Dict[str, str]:
     generating routine's name is passed in through `routine`.
 
     """
-    from .metadata import __version__
+    from pylibefp import __version__
     return {'creator': 'PylibEFP', 'version': __version__, 'routine': routine}
