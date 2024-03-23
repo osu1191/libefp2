@@ -40,7 +40,7 @@
 extern "C" {
 #endif
 
-/** Version string. */
+/** Version string. Sync this with CMake project() */
 #define LIBEFP_VERSION_STRING "1.8.0"
 
 /** Result of an operation. */

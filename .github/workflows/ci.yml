@@ -15,9 +15,65 @@ jobs:
           - label: L-Gnu
             runs-on: ubuntu-latest
             python-version: "3.10"
+            blas: MKL
             build_type: Release
-            cmargs: ""
-    name: "Build • 🐍 ${{ matrix.cfg.python-version }} • ${{ matrix.cfg.label }}"
+            cmargs: >
+              -D BUILD_SHARED_LIBS=ON
+              -D LIBEFP_ENABLE_OPENMP=ON
+
+          - label: L-Gnu
+            runs-on: ubuntu-latest
+            python-version: "3.10"
+            blas: OBL
+            build_type: Release
+            cmargs: >
+              -D BUILD_SHARED_LIBS=ON
+              -D LIBEFP_ENABLE_OPENMP=ON
+
+          - label: M-Clang
+            # test nans on macos-latest (macos-12)
+            runs-on: macos-13
+            python-version: "3.10"
+            blas: OBL
+            build_type: Release
+            cmargs: >
+              -D BUILD_SHARED_LIBS=ON
+              -D LIBEFP_ENABLE_OPENMP=ON
+
+          - label: M-Clang
+            # test nans on macos-latest (macos-12)
+            runs-on: macos-13
+            python-version: "3.10"
+            blas: ACC
+            build_type: Release
+            cmargs: >
+              -D BUILD_SHARED_LIBS=ON
+              -D LIBEFP_ENABLE_OPENMP=ON
+
+          - label: W-ClangCL
+            runs-on: windows-latest
+            python-version: "3.10"
+            blas: MKL
+            build_type: Release
+            cmargs: >
+              -D CMAKE_C_COMPILER="gcc.exe"
+              -D CMAKE_Fortran_COMPILER="gfortran.exe"
+              -D BUILD_SHARED_LIBS=OFF
+              -D LIBEFP_ENABLE_OPENMP=ON
+              # using gnu, not clang-cl, for consistent compiler stack incl. Fortran
+
+          - label: L-Intel
+            runs-on: ubuntu-latest
+            python-version: "3.10"
+            blas: MKL
+            build_type: Release
+            cmargs: >
+              -D CMAKE_C_COMPILER=icx
+              -D CMAKE_C_FLAGS="--gcc-toolchain=${CONDA_PREFIX} --sysroot=${CONDA_PREFIX}/${HOST}/sysroot -target ${HOST}"
+              -D BUILD_SHARED_LIBS=ON
+              -D LIBEFP_ENABLE_OPENMP=OFF
+
+    name: "Build • 🐍 ${{ matrix.cfg.python-version }} • ${{ matrix.cfg.label }} • ${{ matrix.cfg.blas }}"
     runs-on: ${{ matrix.cfg.runs-on }}
     defaults:
       run:
@@ -30,25 +86,34 @@ jobs:
         run: |
           cat > export.yaml <<EOF
           name: libefp-dev
-          channels:
-            - conda-forge
-            - nodefaults
           dependencies:
             - cmake
             - ninja
-            - cxx-compiler
-            - blas-devel
-            - libblas=*=*mkl
+            - c-compiler
+            - fortran-compiler
             #- dpcpp_linux-64
+            - blas-devel
+            #MKL- libblas=*=*mkl
+            #ACC- libblas=*=*accelerate
+            #OBL- libblas=*=*openblas
+            #OBL- openblas=*=*openmp*
           EOF
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             :
+            sed -i "s;#${{ matrix.cfg.blas }};;g" export.yaml
+            if [[ "${{ matrix.cfg.label }}" == "L-Intel" ]]; then
+              sed -i "s/#- dpcpp_linux-64/- dpcpp_linux-64/g" export.yaml
+            fi
           fi
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             :
+            sed -E -i.bak "s;#${{ matrix.cfg.blas }};;g" export.yaml
           fi
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             :
+            sed -i "s;fortran-compiler;m2w64-gcc-fortran;g" export.yaml
+            sed -i "s;#${{ matrix.cfg.blas }};;g" export.yaml
+            sed -i "s;openmp;pthreads;g" export.yaml  # W openblas is pthreads
           fi
           # model sed for L/W
           #   sed -i "s;;;g" export.yaml
@@ -57,13 +122,14 @@ jobs:
           cat export.yaml
 
       - name: Install dependencies
-        uses: conda-incubator/setup-miniconda@v2
+        uses: conda-incubator/setup-miniconda@v3
         with:
           activate-environment: libefp-dev
           environment-file: export.yaml
+          python-version: ${{ matrix.cfg.python-version }}
           miniforge-variant: Mambaforge
           use-mamba: true
-          channels: conda-forge
+          channels: conda-forge,nodefaults
 
       - name: Environment Information
         run: |
@@ -74,16 +140,69 @@ jobs:
         run: |
           cmake \
             -S . \
-            -B ${{ github.workspace }}/build \
+            -B "${{ github.workspace }}/build" \
             -G Ninja \
-            -D CMAKE_BUILD_TYPE=${{ matrix.cfg.build_type }} \
             -D CMAKE_INSTALL_PREFIX="${{ github.workspace }}/installed" \
-            -DCMAKE_PREFIX_PATH="${CONDA_PREFIX}" \
+            -D CMAKE_PREFIX_PATH="${CONDA_PREFIX}" \
             ${{ matrix.cfg.cmargs }}
 
       - name: Build & Install
+        run: cmake --build "${{ github.workspace }}/build" --config ${{ matrix.cfg.build_type }} --target install
+
+      - name: Inspect linkage
         run: |
-          cmake --build ${{ github.workspace }}/build --config ${{ matrix.cfg.build_type }} --target install
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            ldd "${{ github.workspace }}/installed/lib/libefp.so"
+            ldd "${{ github.workspace }}/installed/bin/efpmd"
+          fi
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            otool -L "${{ github.workspace }}/installed/lib/libefp.dylib"
+            otool -L "${{ github.workspace }}/installed/bin/efpmd"
+          fi
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            # library is static
+            objdump.exe -p "${{ github.workspace }}\\installed\\bin\\efpmd.exe" | grep "dll"
+          fi
 
       - name: Test (CTest) - unit tests
-        run: ctest --output-on-failure --test-dir ${{ github.workspace }}/build
+        run: ctest --output-on-failure --test-dir "${{ github.workspace }}/build"
+
+      - name: Test (find_package) - consume installation
+        run: |
+          mkdir test_installed_library && cd test_installed_library
+          cat > CMakeLists.txt <<EOF
+          cmake_minimum_required(VERSION 3.16)
+          project(sample)
+          find_package(libefp REQUIRED)
+          include(CMakePrintHelpers)
+          cmake_print_properties(
+            TARGETS
+              libefp::efp
+              libefp::efpmd
+              tgt::lapack
+              OpenMP::OpenMP_C
+            PROPERTIES
+              IMPORTED_LINK_DEPENDENT_LIBRARIES
+              IMPORTED_LOCATION
+              INTERFACE_LOCATION
+              INTERFACE_LINK_LIBRARIES
+              INTERFACE_INCLUDE_DIRECTORIES
+              INTERFACE_COMPILE_DEFINITIONS
+              INTERFACE_COMPILE_OPTIONS
+              INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
+            )
+          add_executable(hello "hello.c")
+          target_link_libraries(hello libefp::efp)
+          EOF
+          cat > hello.c <<EOF
+          #include <stdio.h>
+          #include <efp.h>
+          int main() {
+              printf("Hello World");
+              return 0;
+          }
+          EOF
+          cmake -S . -B build -G Ninja --log-level verbose -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${CONDA_PREFIX};${{github.workspace}}/installed"
+          cmake --build build
+          ./build/hello
+

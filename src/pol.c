@@ -666,7 +666,7 @@ pol_scf_iter(struct efp *efp)
             for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
                 struct polarizable_pt *pt = frag->polarizable_pts + j;
                 if (vec_len(&pt->indip) > INDIP_PRINT_TRESH) {
-                    printf("\n WARNING: induced dipole %d on fragment %d: %lf ", j, i, vec_len(&pt->indip));
+                    printf("\n WARNING: induced dipole %zu on fragment %zu: %lf ", j, i, vec_len(&pt->indip));
                 }
             }
         }
@@ -954,10 +954,10 @@ efp_compute_pol_energy_crystal(struct efp *efp, double *energy)
 
     // think how to skip recomputing static field in qm scf iterations
     // check on efp->do_gradient breaks gtests...
-    if (res = compute_elec_field_crystal(efp))
+    if ((res = compute_elec_field_crystal(efp)))
         return res;
 
-    if (res = efp_compute_id_iterative(efp))
+    if ((res = efp_compute_id_iterative(efp)))
         return res;
 
     if (efp->opts.print > 1) {

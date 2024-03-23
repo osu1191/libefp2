@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(libefp VERSION 1.7.2 LANGUAGES C)
+project(
+  libefp
+  # sync VERSION here with src/efp.h LIBEFP_VERSION_STRING
+  # someday when Makefile dropped, configure efp.h.in from cmake
+  VERSION 1.8.0
+  LANGUAGES C
+  )
 set(libefp_AUTHORS "Ilya A. Kaliman, Lori A. Burns, Dmitry Morozov, Carlos H. Borca, Yen (Terri) Bui, Yongbin Kim, Lyudmila V. Slipchenko")
 set(libefp_DESCRIPTION "Parallel implementation of the Effective Fragment Potential method")
 set(libefp_URL "https://github.com/libefp2/libefp")
@@ -8,34 +14,60 @@ set(libefp_LICENSE "BSD 2-clause")
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
+set(efp libefp)  # Namespace
+
+# TODO: Remove when requiring cmake >= 3.21  # from LecrisUT/CMake-Template
+if (NOT DEFINED ${efp}_IS_TOP_LEVEL)
+    if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+        set(PROJECT_IS_TOP_LEVEL ON)
+    else ()
+        set(PROJECT_IS_TOP_LEVEL OFF)
+    endif ()
+    set(${efp}_IS_TOP_LEVEL ${PROJECT_IS_TOP_LEVEL})
+endif ()
+
 ################################### Options ####################################
 include(psi4OptionsTools)
+if (${efp}_IS_TOP_LEVEL)
+    if (DEFINED ENABLE_OPENMP)
+        message(FATAL_ERROR "Use LIBEFP_ENABLE_OPENMP instead of ENABLE_OPENMP.")
+    endif()
+endif()
+
 option_with_default(CMAKE_BUILD_TYPE "Build type" Release)
 option_with_print(BUILD_SHARED_LIBS "Build final library as shared, not static" OFF)
 option_with_default(BUILD_FPIC "Libraries will be compiled with position independent code" ON)
 if((${BUILD_SHARED_LIBS}) AND NOT ${BUILD_FPIC})
     message(FATAL_ERROR "BUILD_SHARED_LIBS ON and BUILD_FPIC OFF are incompatible, as shared library requires position independent code")
 endif()
-option_with_print(ENABLE_OPENMP "Enable OpenMP parallelization. Psi4 wants OFF" OFF)
+option_with_print(LIBEFP_ENABLE_OPENMP "Enable OpenMP parallelization. Psi4 wants OFF" OFF)
 option_with_print(ENABLE_GENERIC "Enable mostly static linking in shared library" OFF)
-option_with_flags(ENABLE_XHOST "Enable processor-specific optimization" ON "-xHost" "-march=native")
+include(xhost)  # defines: option(ENABLE_XHOST "Enable processor-specific optimization" ON)
 option_with_print(FRAGLIB_UNDERSCORE_L "Installed fragment library has names ending in _L. Psi4 wants OFF" ON)
 option_with_print(FRAGLIB_DEEP "Installed fragment libary has hierarchical, not flat, filestructure. Psi4 wants OFF" ON)
 option_with_print(INSTALL_DEVEL_HEADERS "Install additional namespaced devel headers beyond convenience efp.h" OFF)
 option_with_default(LIBEFP_CMAKECONFIG_INSTALL_DIR "Directory within CMAKE_INSTALL_PREFIX to which CMake configuration files installed" "share/cmake/libefp")
+option_with_print(LIBEFP_ENABLE_EFPMD "Build standalone efpmd executable (requires Fortran). This also enables testing" ON)
 
 ######################### Process & Validate Options ###########################
 include(autocmake_safeguards)
-include(autocmake_omp)
 include(custom_static_library)
 
+if (LIBEFP_ENABLE_OPENMP)
+    if (CMAKE_C_COMPILER_ID STREQUAL "IntelLLVM")
+        message(WARNING "CMake v3.28 doesn't find OpenMP C language for IntelLLVM (icx), so configure will likely fail. Rerun with `-D LIBEFP_ENABLE_OPENMP=OFF` or pass flags in CMAKE_C_FLAGS.")
+    endif()
+
+    find_package(OpenMP REQUIRED COMPONENTS C)
+endif()
+
+# for MKL serial, this is recommended:
+# set(BLA_VENDOR Intel10_64lp_seq)
 find_package(TargetLAPACK REQUIRED)
 
 ################################# Main Project #################################
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-
-set(efp libefp)  # Namespace
 
 # <<< Build >>>
 
@@ -64,7 +96,7 @@ foreach(_dotefp ${_dotefps})
 endforeach()
 list(REMOVE_DUPLICATES FRAGLIB_DATADIRS)
 
-# C library
+# libefp C library
 set(raw_sources_list
   aidisp.c
   balance.c
@@ -85,6 +117,16 @@ set(raw_sources_list
   )
 set(src_prefix "src/")
 string(REGEX REPLACE "([^;]+)" "${src_prefix}\\1" sources_list "${raw_sources_list}")
+
+if (CMAKE_C_COMPILER_ID STREQUAL "IntelLLVM")
+    # Linux+icx: without this, many efpmd tests produce wrong answers
+    set_source_files_properties(
+      src/elec.c
+      src/util.c
+      PROPERTIES
+        COMPILE_OPTIONS "-O0"
+      )
+endif()
 
 set(export_properties
   "${efp}_VERSION"
@@ -118,7 +160,18 @@ target_link_libraries(
   efp
   PUBLIC
     tgt::lapack
+    $<$<TARGET_EXISTS:OpenMP::OpenMP_C>:OpenMP::OpenMP_C>
   )
+
+# efpmd executable
+if (LIBEFP_ENABLE_EFPMD)
+    # needed to link the Fortran routines in libff into the efpmd executable
+    enable_language(Fortran)
+    add_subdirectory(efpmd)
+
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 # <<< Install >>>
 
@@ -176,9 +229,3 @@ install(
   DESTINATION
     ${LIBEFP_CMAKECONFIG_INSTALL_DIR}
   )
-
-# Notes on CMake: CMake builds libefp, the shared or static library,
-#   but not efpmd because Psi4 doesn't use it. Also not implemented
-#   is testing with CTest. Also, when libefp is
-#   compiled statically with OpenMP, will need to compile consuming
-#   application with OpenMP, too, or supply link library.

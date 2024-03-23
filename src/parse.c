@@ -217,7 +217,7 @@ parse_monopoles(struct frag *frag, struct stream *stream)
 	for (size_t i = 0; i < frag->n_multipole_pts; i++) {
 
         if (tok_stop(stream)) {
-            printf(" Found %d monopoles of %d expected in fragment %s \n",
+            printf(" Found %d monopoles of %zu expected in fragment %s \n",
                     counter, frag->n_multipole_pts, frag->name);
             return EFP_RESULT_SUCCESS;
         }
@@ -263,7 +263,7 @@ parse_dipoles(struct frag *frag, struct stream *stream)
     for (size_t i = 0; i < frag->n_multipole_pts; i++) {
 
         if (tok_stop(stream)) {
-            printf(" Found %d dipoles of %d expected in fragment %s \n",
+            printf(" Found %d dipoles of %zu expected in fragment %s \n",
                    counter, frag->n_multipole_pts, frag->name);
             return EFP_RESULT_SUCCESS;
         }
@@ -324,7 +324,7 @@ parse_quadrupoles(struct frag *frag, struct stream *stream)
     for (size_t i = 0; i < frag->n_multipole_pts; i++) {
 
         if (tok_stop(stream)) {
-            printf(" Found %d quadrupoles of %d expected in fragment %s \n",
+            printf(" Found %d quadrupoles of %zu expected in fragment %s \n",
                    counter, frag->n_multipole_pts, frag->name);
             return EFP_RESULT_SUCCESS;
         }
@@ -393,7 +393,7 @@ parse_octupoles(struct frag *frag, struct stream *stream)
     for (size_t i = 0; i < frag->n_multipole_pts; i++) {
 
         if (tok_stop(stream)) {
-            printf(" Found %d octupoles of %d expected in fragment %s \n",
+            printf(" Found %d octupoles of %zu expected in fragment %s \n",
                    counter, frag->n_multipole_pts, frag->name);
             return EFP_RESULT_SUCCESS;
         }
@@ -1163,7 +1163,7 @@ parse_screen(struct frag *frag, struct stream *stream)
     for (size_t i = 0; i < frag->n_multipole_pts; i++) {
 
         if (tok_stop(stream)) {
-            printf(" Found %d SCREEN_ parameters, %d expected in fragment %s \n",
+            printf(" Found %d SCREEN_ parameters, %zu expected in fragment %s \n",
                    counter, frag->n_multipole_pts, frag->name);
             return EFP_RESULT_SUCCESS;
         }
