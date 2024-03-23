@@ -1992,6 +1992,27 @@ efp_create(void)
 }
 
 EFP_EXPORT enum efp_result
+efp_set_electron_density_field_fn(struct efp *efp,
+                                  efp_electron_density_field_fn fn)
+{
+    assert(efp);
+
+    efp->get_electron_density_field = fn;
+
+    return EFP_RESULT_SUCCESS;
+}
+
+EFP_EXPORT enum efp_result
+efp_set_electron_density_field_user_data(struct efp *efp, void *user_data)
+{
+    assert(efp);
+
+    efp->get_electron_density_field_user_data = user_data;
+
+    return EFP_RESULT_SUCCESS;
+}
+
+EFP_EXPORT enum efp_result
 efp_get_frag_count(struct efp *efp, size_t *n_frag)
 {
 	assert(efp);
