@@ -164,6 +164,10 @@ get_elec_field(const struct efp *efp, size_t frag_idx, size_t pt_idx)
 		// do not use skip list if symmetry is 1
         if (efp->opts.symmetry == 0 && efp_skip_frag_pair(efp, i, frag_idx))
             continue;
+        // this might need to be changed to a more careful separation of
+        // elec and pol contributions to the field
+        if (i == efp->opts.special_fragment && !(efp->opts.special_terms & EFP_SPEC_TERM_POL))
+            continue;
 		const struct frag *fr_i = efp->frags + i;
 		struct swf swf = efp_make_swf(efp, fr_i, fr_j, 0);
 		if (swf.swf == 0.0)
@@ -325,6 +329,9 @@ compute_elec_field_range(struct efp *efp, size_t from, size_t to, void *data)
 #pragma omp parallel for schedule(dynamic)
 #endif
 	for (size_t i = from; i < to; i++) {
+        if (i == efp->opts.special_fragment &&
+        !(efp->opts.special_terms & EFP_SPEC_TERM_POL))
+            continue;
         // const struct frag *frag = efp->frags + i;
 		struct frag *frag = efp->frags + i;
 
@@ -461,7 +468,11 @@ get_induced_dipole_field(struct efp *efp, size_t frag_idx,
         if (efp->opts.symmetry == 0 && efp_skip_frag_pair(efp, frag_idx, j))
             continue;
 
-		struct frag *fr_j = efp->frags + j;
+        if (j == efp->opts.special_fragment &&
+            !(efp->opts.special_terms & EFP_SPEC_TERM_POL))
+            continue;
+
+        struct frag *fr_j = efp->frags + j;
 		struct swf swf = efp_make_swf(efp, fr_i, fr_j, 0);
 		if (swf.swf == 0)
 		    continue;
@@ -584,7 +595,12 @@ compute_id_range(struct efp *efp, size_t from, size_t to, void *data)
 #pragma omp parallel for schedule(dynamic) reduction(+:conv)
 #endif
 	for (size_t i = from; i < to; i++) {
-		struct frag *frag = efp->frags + i;
+
+        if (i == efp->opts.special_fragment &&
+            !(efp->opts.special_terms & EFP_SPEC_TERM_POL))
+            continue;
+
+        struct frag *frag = efp->frags + i;
 
 		for (size_t j = 0; j < frag->n_polarizable_pts; j++) {
 			struct polarizable_pt *pt = frag->polarizable_pts + j;
@@ -739,6 +755,14 @@ compute_energy_range(struct efp *efp, size_t from, size_t to, void *data)
 #pragma omp parallel for schedule(dynamic) reduction(+:energy)
 #endif
     for (size_t i = from; i < to; i++) {
+
+        // skip energy contribution for a special fragment in case of torch model with elpot
+        // this assumes that we use ml/efp fragment that induces field to other fragments due to its efp nature (multipoles and ind dipoles)
+        // this needs to be changed if ml fragment uses ml-predicted charges instead
+#ifdef TORCH_SWITCH
+        if (efp->opts.enable_elpot && efp->opts.special_fragment == i) continue;
+#endif
+
         struct frag *frag = efp->frags + i;
 
         // zeroing out polarization pair energies is a must
@@ -1041,7 +1065,20 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 		if (j == frag_idx || efp_skip_frag_pair(efp, frag_idx, j))
 			continue;
 
-		struct frag *fr_j = efp->frags + j;
+#ifdef TORCH_SWITCH
+        // the code below skips gradient contributions to a special (ml) fragment in case of torch model with elpot
+        // this assumes that we use ml/efp fragment that induces field to other fragments due to its efp nature (multipoles and ind dipoles)
+        // this needs to be changed if ml fragment uses ml-predicted charges instead
+
+        // this is true for normal cases not related to torch model with elpot
+        bool not_torch_elpot = !efp->opts.enable_elpot || (efp->opts.special_fragment != frag_idx && efp->opts.special_fragment != j);
+        // true when torch with elpot is invoked and fr_idx is the ml fragment
+        bool torch_elpot_i = efp->opts.enable_elpot && (efp->opts.special_fragment == frag_idx);
+        // true when torch with elpot is invoked and j is the ml fragment
+        bool torch_elpot_j = efp->opts.enable_elpot && (efp->opts.special_fragment == j);
+#endif
+
+        struct frag *fr_j = efp->frags + j;
 		struct swf swf = efp_make_swf(efp, fr_i, fr_j, 0);
 		if (swf.swf == 0.0)
 		    continue;
@@ -1097,7 +1134,7 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
             }
 
 			/* induced dipole - quadrupole */
-            if (pt_j->if_dip) {
+            if (pt_j->if_quad) {
                 e += efp_dipole_quadrupole_energy(&dipole_i,
                                                   pt_j->quadrupole, &dr);
                 efp_dipole_quadrupole_grad(&dipole_i, pt_j->quadrupole,
@@ -1120,13 +1157,24 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 			vec_scale(&add_i, swf.swf);
 			vec_scale(&add_j, swf.swf);
 
-			efp_add_force(efp->grad + frag_idx, CVEC(fr_i->x),
-			    CVEC(pt_i->x), &force, &add_i);
-			efp_sub_force(efp->grad + j, CVEC(fr_j->x),
-			    CVEC(pt_j->x), &force, &add_j);
-			efp_add_stress(&swf.dr, &force, &efp->stress);
+            efp_add_stress(&swf.dr, &force, &efp->stress);
 
-			energy += p1 * e;
+            // normal case
+#ifdef TORCH_SWITCH
+            if (not_torch_elpot) {
+#endif
+                efp_add_force(efp->grad + frag_idx, CVEC(fr_i->x), CVEC(pt_i->x), &force, &add_i);
+                efp_sub_force(efp->grad + j, CVEC(fr_j->x), CVEC(pt_j->x), &force, &add_j);
+                energy += p1 * e;
+#ifdef TORCH_SWITCH
+            }
+#endif
+
+#ifdef TORCH_SWITCH
+            // adding gradients to non-ML fragment only in torch elpot model
+            if (torch_elpot_i)  efp_sub_force(efp->grad + j, CVEC(fr_j->x), CVEC(pt_j->x), &force, &add_j);
+            if (torch_elpot_j)  efp_add_force(efp->grad + frag_idx, CVEC(fr_i->x), CVEC(pt_i->x), &force, &add_i);
+#endif
 		}
 
 		/* induced dipole - induced dipoles */
@@ -1173,12 +1221,24 @@ compute_grad_point(struct efp *efp, size_t frag_idx, size_t pt_idx)
 			vec_scale(&add_i, swf.swf);
 			vec_scale(&add_j, swf.swf);
 
-			efp_add_force(efp->grad + frag_idx, CVEC(fr_i->x),
-			    CVEC(pt_i->x), &force, &add_i);
-			efp_sub_force(efp->grad + j, CVEC(fr_j->x),
-			    CVEC(pt_j->x), &force, &add_j);
-			efp_add_stress(&swf.dr, &force, &efp->stress);
-			energy += p1 * e;
+            efp_add_stress(&swf.dr, &force, &efp->stress);
+
+            // normal case
+#ifdef TORCH_SWITCH
+            if (not_torch_elpot) {
+#endif
+                efp_add_force(efp->grad + frag_idx, CVEC(fr_i->x), CVEC(pt_i->x), &force, &add_i);
+                efp_sub_force(efp->grad + j, CVEC(fr_j->x), CVEC(pt_j->x), &force, &add_j);
+                energy += p1 * e;
+#ifdef TORCH_SWITCH
+            }
+#endif
+
+#ifdef TORCH_SWITCH
+            // adding gradients to non-ML fragment only in torch elpot model
+            if (torch_elpot_i)  efp_sub_force(efp->grad + j, CVEC(fr_j->x), CVEC(pt_j->x), &force, &add_j);
+            if (torch_elpot_j)  efp_add_force(efp->grad + frag_idx, CVEC(fr_i->x), CVEC(pt_i->x), &force, &add_i);
+#endif
 		}
 
 		force.x = swf.dswf.x * energy;
@@ -1376,7 +1436,14 @@ efp_get_elec_potential(struct efp *efp, size_t frag_idx, const double *xyz,
             double r = vec_len(&dr);
             double r3 = r * r * r;
 
-            elpot += swf.swf * 0.5 * (vec_dot(&pt_i->indip, &dr) + vec_dot(&pt_i->indipconj, &dr)) / r3;
+            // LVS: I think the polarization potential should be 0.5*indip*Ta
+            // this is different from what enters QM Hamiltonian (0.5*(indip+indipconj)*Ta)
+            // However, the classical potential is not supposed to spend work (energy) on inducing dipoles on other fragments,
+            // that's why no need to double the induce dipole
+            // this is changed on Oct 25 2024 (after the first ANI/EFP paper is published)
+            //elpot += swf.swf * 0.5 * (vec_dot(&pt_i->indip, &dr) + vec_dot(&pt_i->indipconj, &dr)) / r3;
+            elpot += swf.swf * 0.5 * vec_dot(&pt_i->indip, &dr) / r3;
+
         }
     }
 
